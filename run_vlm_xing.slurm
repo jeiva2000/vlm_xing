@@ -1,4 +1,5 @@
 #!/bin/bash
+#SBATCH --export=NONE                   # entorno limpio (el de módulos del login puede no valer en los nodos GPU)
 #SBATCH --job-name=vlm_xing
 #SBATCH --partition=main
 #SBATCH --nodes=1
@@ -13,7 +14,7 @@
 # Uso:
 #   bash  run_vlm_xing.slurm      -> en el nodo login: crea/actualiza el entorno y descarga
 #                                    pesos (YOLOX + VLM). Útil si los nodos GPU no tienen internet.
-#   sbatch run_vlm_xing.slurm     -> pipeline completo en 1 GPU.
+#   sbatch --export=NONE,DT_ROOT=/ruta/DanceTrack run_vlm_xing.slurm  -> pipeline completo (todas las GPUs asignadas).
 #   STAGES="zeroshot train" MODEL=qwen3vl-4b sbatch run_vlm_xing.slurm   -> solo algunas etapas.
 # ---------------------------------------------------------------------------
 set -euo pipefail

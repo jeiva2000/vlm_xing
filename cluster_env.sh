@@ -3,16 +3,15 @@
 if command -v module >/dev/null 2>&1; then
   module purge || true
   # shellcheck disable=SC2086
-  if ! module load ${MODULES:-GCC/12.2.0 CUDA/11.8.0} ${PYTHON_MODULE:-}; then
-    if [[ -z "${SLURM_JOB_ID:-}" ]]; then
-      # el nodo login puede no tener los módulos de los nodos GPU: se sigue sin ellos
-      echo "AVISO: no se pudieron cargar los módulos (${MODULES:-GCC/12.2.0 CUDA/11.8.0}) en $(hostname); se continúa sin CUDA/GCC." >&2
-      echo "       Nombres disponibles: 'module avail CUDA' / 'module avail GCC'; usa MODULES=\"...\" si difieren." >&2
-      return 0 2>/dev/null || exit 0
-    fi
-    echo "ERROR: fallo al cargar los módulos (${MODULES:-GCC/12.2.0 CUDA/11.8.0}) en $(hostname)" >&2
-    module avail 2>&1 >&2
-    return 1 2>/dev/null || exit 1
+  # se carga módulo a módulo: si uno falla (p.ej. GCC con otro nombre en este nodo) se avisa y se sigue;
+  # lo imprescindible es nvcc (se comprueba abajo)
+  _failed=0
+  for _m in ${MODULES:-GCC/12.2.0 CUDA/11.8.0} ${PYTHON_MODULE:-}; do
+    module load "$_m" || { echo "AVISO: no se pudo cargar el módulo $_m en $(hostname)" >&2; _failed=1; }
+  done
+  if (( _failed )) && [[ -z "${SLURM_JOB_ID:-}" ]]; then
+    echo "       (login: se continúa) Nombres disponibles: 'module avail CUDA' / 'module avail GCC'; usa MODULES=\"...\"" >&2
+    return 0 2>/dev/null || exit 0
   fi
 
   if ! command -v nvcc &>/dev/null; then

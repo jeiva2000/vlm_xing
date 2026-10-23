@@ -16,7 +16,7 @@ if [[ -n "$_conda_sh" ]]; then
     if [[ "${CREATE_ENV:-0}" == 1 ]]; then
       conda create -y -n "$CONDA_ENV" "python=${CONDA_PYTHON:-3.11}" pip
     else
-      echo "No existe el entorno conda '$CONDA_ENV' (créalo con: bash run_vlm_xing.slurm en el login)"; return 1 2>/dev/null || exit 1
+      echo "No existe el entorno conda '$CONDA_ENV' (se crea al lanzar run_vlm_xing.slurm)"; return 1 2>/dev/null || exit 1
     fi
   fi
   conda activate "$CONDA_ENV"

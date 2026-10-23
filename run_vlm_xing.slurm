@@ -53,14 +53,14 @@ cd "$CODE_DIR"
 source "$CODE_DIR/cluster_env.sh"
 
 # ------------------------------- entorno -----------------------------------
-# Conda (miniconda) si se encuentra conda.sh, si no un venv en $ENV_DIR. Ver activate_env.sh.
+# Conda (miniconda) si se encuentra conda.sh, si no un venv. Ver activate_env.sh.
+# Si el entorno no existe se crea e instalan las dependencias; si existe, solo se activa.
+# FORCE_INSTALL=1 reinstala las dependencias en un entorno existente.
 setup_env() {
-  local want
-  want="$(cat requirements.txt <(echo "$TORCH_SPEC") | sha256sum | cut -d' ' -f1)"
   CREATE_ENV=1 source "$CODE_DIR/activate_env.sh"
-  local stamp="$ENV_PREFIX/.req_hash"
-  if [[ -f "$stamp" && "$(cat "$stamp")" == "$want" ]]; then
-    log "Entorno al día: $ENV_PREFIX"
+  local marker="$ENV_PREFIX/.deps_installed"
+  if [[ -f "$marker" && "${FORCE_INSTALL:-0}" != 1 ]]; then
+    log "Entorno existente, solo se activa: $ENV_PREFIX"
     return
   fi
   python -c 'import sys; assert sys.version_info >= (3, 10), sys.version' \
@@ -71,18 +71,15 @@ setup_env() {
   pip install $TORCH_SPEC --index-url "$TORCH_INDEX"
   pip install -r requirements.txt
   pip install --no-build-isolation --no-deps yolox==0.3.0
-  echo "$want" > "$stamp"
+  touch "$marker"
 }
 
-# En el nodo GPU (job) solo se activa: instalar/crear entornos es cosa del login (bash run_vlm_xing.slurm)
-if [[ -z "${SLURM_JOB_ID:-}" ]]; then
-  # flock evita que dos ejecuciones instalen a la vez sobre el mismo entorno
-  mkdir -p "$HOME/envs"
-  (
-    flock -w 3600 9 || { echo "No se pudo bloquear el entorno"; exit 1; }
-    setup_env
-  ) 9>"$HOME/envs/${CONDA_ENV:-vlm_xing}.lock"
-fi
+# flock evita que dos jobs creen/instalen a la vez sobre el mismo entorno
+mkdir -p "$HOME/envs"
+(
+  flock -w 3600 9 || { echo "No se pudo bloquear el entorno"; exit 1; }
+  setup_env
+) 9>"$HOME/envs/${CONDA_ENV:-vlm_xing}.lock"
 # shellcheck disable=SC1091
 source "$CODE_DIR/activate_env.sh"
 

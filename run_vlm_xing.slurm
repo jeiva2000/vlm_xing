@@ -40,7 +40,7 @@ EXTRA_DATA_ARGS="${EXTRA_DATA_ARGS:-}"            # p.ej. "--add_traj_text"
 EPOCHS="${EPOCHS:-2}"
 BATCH="${BATCH:-2}"
 GRAD_ACCUM="${GRAD_ACCUM:-}"                     # POR GPU; vacío = auto (lote efectivo 16 repartido entre las GPUs)
-STAGES="${STAGES:-mine zeroshot train eval}"
+STAGES="${STAGES:-mine zeroshot train eval trackeval}"
 
 TORCH_SPEC="torch==2.7.1 torchvision==0.22.1"     # última serie con wheels cu118
 TORCH_INDEX="https://download.pytorch.org/whl/cu118"
@@ -89,6 +89,10 @@ for split in train val; do
   [[ -f "$DT_ROOT/$split/$(ls "$DT_ROOT/$split" 2>/dev/null | head -1)/seqinfo.ini" ]] \
     || { echo "DT_ROOT inválido ($DT_ROOT): se esperan $DT_ROOT/{train,val}/<seq>/seqinfo.ini"; exit 1; }
 done
+
+if has_stage trackeval; then   # con internet (aún no offline): clona TrackEval si falta
+  python eval_tracks.py --setup || log "AVISO: no se pudo preparar TrackEval; clónalo/parchéalo con: python eval_tracks.py --setup"
+fi
 
 export PYTHONUNBUFFERED=1   # el log del job se ve en tiempo real
 export HF_HUB_OFFLINE=1   # en el nodo GPU todo debe estar ya descargado
@@ -172,6 +176,40 @@ if has_stage eval; then
     done
   else
     log "No hay adaptador guardado (el fine-tuning no superó al zero-shot): se omite la evaluación final"
+  fi
+fi
+
+# --------- 5) TrackEval: tracker solo vs tracker + VLM (HOTA, IDF1, IDSW...) ----------
+# El VLM se aplica como post-proceso sobre los IDs del tracker (apply_vlm.py), con el beta/tau
+# elegidos en val.sel; se evalúan las secuencias de val.test. Si faltan las trayectorias crudas
+# (minado antiguo sin tracks_*), se regeneran solo para esas secuencias.
+if has_stage trackeval; then
+  best="$WORK_DIR/runs/lora_$RUN_TAG/best"
+  if [[ -d "$best" ]]; then
+    for t in $TRACKERS; do
+      evf="$EV/val/events_$t.test.jsonl"
+      fin="$WORK_DIR/runs/final_${RUN_TAG}_$t"
+      te="$WORK_DIR/runs/trackeval_$RUN_TAG/$t"
+      trk="$EV/val/tracks_$t"
+      if [[ ! -s "$fin/scores.jsonl" ]]; then log "TrackEval ($t): faltan scores en $fin, se omite"; continue; fi
+      if [[ ! -d "$trk" ]]; then
+        trk="$WORK_DIR/tracks_raw/val/tracks_$t"
+        if [[ ! -d "$trk" ]]; then
+          log "Regenerando trayectorias crudas de $t (solo secuencias de val.test)"
+          SEQS="$(python -c "from common import read_jsonl; print(*sorted({e['seq'] for e in read_jsonl('$evf')}))")"
+          # shellcheck disable=SC2086
+          python mine_events.py --data_root "$DT_ROOT/val" --det_dir "$DETS/val" --trackers "$t" \
+            --out_dir "$WORK_DIR/tracks_raw/val" --seqs $SEQS --fp16 $([[ "$REID" == 1 ]] && echo --reid)
+        fi
+      fi
+      log "TrackEval ($t)"
+      python apply_vlm.py --events "$evf" --scores "$fin/scores.jsonl" --tracks_dir "$trk" \
+        --selection "$best/selection.json" --out_dir "$te/vlm"
+      python eval_tracks.py --gt_root "$DT_ROOT/val" --events "$evf" \
+        --variant "$t=$trk" --variant "$t+vlm=$te/vlm" --out "$te"
+    done
+  else
+    log "No hay adaptador guardado: se omite TrackEval"
   fi
 fi
 

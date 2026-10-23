@@ -7,3 +7,4 @@ dets/
 __pycache__/
 *.pyc
 .DS_Store
+third_party/

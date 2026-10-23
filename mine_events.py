@@ -134,6 +134,7 @@ def run_sequence(seq_dir: Path, tracker_name: str, args, tracker_kwargs: dict):
     open_evs: list[Event] = []
     records = []
     gt_assign: dict[int, list] = defaultdict(list)
+    tracks: list = []  # salida cruda del tracker: (frame, id, x1, y1, x2, y2)
     event_spans: list[tuple[int, int, set]] = []
 
     for f in range(1, info["length"] + 1):
@@ -144,6 +145,7 @@ def run_sequence(seq_dir: Path, tracker_name: str, args, tracker_kwargs: dict):
         gts = match_to_gt(boxes, gt.get(f), thr=args.gt_iou)
         cur = {int(t): b for t, b in zip(ids, boxes)}
         cur_gt = {int(t): int(g) for t, g in zip(ids, gts)}
+        tracks.extend((f, t, *map(float, b)) for t, b in cur.items())
         for t, g in cur_gt.items():
             if g >= 0:
                 gt_assign[g].append((f, t))
@@ -206,7 +208,15 @@ def run_sequence(seq_dir: Path, tracker_name: str, args, tracker_kwargs: dict):
     sw = gt_id_switches(gt_assign)
     covered = sum(any(s - args.sep_frames <= fs <= e + 1 and (t0 in tr or t1 in tr)
                       for s, e, tr in event_spans) for fs, _, t0, t1 in sw)
-    return records, {"switches": len(sw), "covered": covered}
+    return records, {"switches": len(sw), "covered": covered, "tracks": tracks}
+
+
+def write_tracks(path: Path, tracks) -> None:
+    """Trayectorias crudas del tracker en formato MOT (para TrackEval / apply_vlm.py)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as fh:
+        for f, t, x1, y1, x2, y2 in tracks:
+            fh.write(f"{f},{t},{x1:.2f},{y1:.2f},{x2 - x1:.2f},{y2 - y1:.2f},1,-1,-1,-1\n")
 
 
 def main():
@@ -258,6 +268,7 @@ def main():
             recs, st = run_sequence(s, tname, args, dict(tk))
             for r in recs:
                 r["seq_dir"] = str(s)
+            write_tracks(Path(args.out_dir) / f"tracks_{tname}" / f"{s.name}.txt", st["tracks"])
             all_recs += recs
             n_sw += st["switches"]
             n_cov += st["covered"]

@@ -60,3 +60,16 @@ Sin `torchrun` todo funciona como antes (1 proceso, `device_map=auto`).
 Por defecto BoT-SORT va sin ReID (solo movimiento + CMC). Con `--reid` (o `REID=1` en el `.slurm`/smoke test)
 usa apariencia con `models/osnet_x0_25_msmt17.pt`, que se descarga si falta (gdown, necesita internet; se puede
 cambiar con `--reid_weights`). Los eventos de BoT-SORT con y sin ReID no son comparables: usa `--out_dir` distintos.
+
+## TrackEval (tracker solo vs tracker + VLM)
+`apply_vlm.py` aplica las decisiones del VLM (assoc.decide con el beta/tau de `best/selection.json`) sobre las
+trayectorias crudas del tracker: desde el frame de la consulta, el candidato elegido hereda el ID de la memoria
+(post-proceso, los frames del cruce no se reescriben). `eval_tracks.py` evalúa con TrackEval (HOTA, DetA, AssA,
+MOTA, IDF1, IDSW) las secuencias de val.test para el tracker solo y para tracker+VLM:
+```bash
+STAGES="trackeval" sbatch --export=NONE,DT_ROOT=... run_vlm_xing.slurm   # tras mine/train/eval
+python eval_tracks.py --setup   # clona TrackEval en third_party/ (git + internet) y lo parchea para numpy>=1.24
+```
+`mine_events.py` guarda ahora `tracks_<tracker>/<seq>.txt` (salida cruda); si no existen se regeneran solo para val.test.
+Resultados: `work/runs/trackeval_<tag>/<tracker>/metrics_trackeval.json`. Solo se evalúa el adaptador entrenado
+(beta/tau elegidos en val.sel); las secuencias sin eventos no entran en la evaluación.

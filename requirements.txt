@@ -33,3 +33,5 @@ huggingface_hub
 
 # Opcional: carga en 4 bits para depurar en GPUs pequeñas (RTX 2080)
 bitsandbytes
+
+# TrackEval (se clona en third_party/ con eval_tracks.py --setup; solo necesita numpy/scipy)

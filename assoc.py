@@ -74,11 +74,23 @@ def event_metrics(events: list[dict], rows: list[dict], beta: float, tau: float 
             "acc_tracker": st["tracker_ok"] / n, "acc_final": st["final_ok"] / n}
 
 
-def pair_metrics(rows: list[dict]) -> dict:
+def bce_loss(s: np.ndarray, y: np.ndarray, pos_weight: float | None = None) -> float:
+    """Misma BCE que el entrenamiento (BCE con logits, media sobre pares; pos_weight pondera los positivos)."""
+    if len(s) == 0:
+        return float("nan")
+    l = np.maximum(s, 0) - s * y + np.log1p(np.exp(-np.abs(s)))
+    w = np.where(y == 1, pos_weight, 1.0) if pos_weight else 1.0
+    return float(np.mean(l * w))
+
+
+def pair_metrics(rows: list[dict], pos_weight: float | None = None) -> dict:
     s = np.array([r["score"] for r in rows])
     y = np.array([r["label"] for r in rows])
     out = {"pairs": len(rows), "pos_rate": float(y.mean()) if len(y) else 0.0,
-           "auc": auc(s, y), "acc@0": float(((s > 0) == y).mean()) if len(y) else 0.0}
+           "auc": auc(s, y), "acc@0": float(((s > 0) == y).mean()) if len(y) else 0.0,
+           "bce": bce_loss(s, y)}
+    if pos_weight:  # comparable con la pérdida de entrenamiento (que usa pos_weight)
+        out["bce_weighted"] = bce_loss(s, y, pos_weight)
     # AUC solo en eventos donde el tracker falló (lo difícil)
     hard = np.array([r["tracker_error"] for r in rows], dtype=bool)
     out["auc_tracker_error_events"] = auc(s[hard], y[hard]) if hard.any() else float("nan")

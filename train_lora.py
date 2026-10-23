@@ -94,7 +94,13 @@ def main():
         """Cada proceso puntúa su porción de val; el informe lo calcula solo rank 0 (None en el resto)."""
         rows = gather_rows(score_dataset(v, va, coll, args.batch_size * 2, limit=args.val_limit,
                                          rank=rank, world=world), world)
-        return report(va.events, rows, out, tag=tag) if main_proc else None
+        if not main_proc:
+            return None
+        res = report(va.events, rows, out, tag=tag, pos_weight=pos_weight)
+        pm = json.loads((out / f"metrics{tag}.json").read_text())["pair"]
+        print(f"VAL{tag}: loss={pm['bce']:.4f} loss_ponderada={pm.get('bce_weighted', float('nan')):.4f} "
+              f"auc={pm['auc']:.3f} neto={res['net']}")
+        return res
 
     # ---------------- prueba congelada (época 0) ----------------
     best_net = -math.inf
@@ -178,7 +184,10 @@ def main():
                 opt.step(); sched.step(); opt.zero_grad(set_to_none=True)
                 step += 1
                 if step % 10 == 0:
-                    log(f"ep {ep} step {step}/{total} loss {np.mean(run[-50:]):.4f}")
+                    ml = torch.tensor(float(np.mean(run[-50:])), device=v.device)
+                    if world > 1:  # media entre GPUs (todas llegan al mismo step)
+                        torch.distributed.all_reduce(ml); ml /= world
+                    log(f"ep {ep} step {step}/{total} loss {ml.item():.4f}")
             if (it + 1) % eval_every == 0 or it + 1 == n_batches:
                 res = evaluate_val(f"_ep{ep}_it{it+1}")
                 if main_proc:

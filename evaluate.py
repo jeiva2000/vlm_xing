@@ -60,8 +60,8 @@ def score_dataset(verifier, ds, collator, batch_size, num_workers=4, limit=None,
     return rows
 
 
-def report(events, rows, out_dir: Path, tag: str = ""):
-    pm = pair_metrics(rows)
+def report(events, rows, out_dir: Path, tag: str = "", pos_weight: float | None = None):
+    pm = pair_metrics(rows, pos_weight)
     sw = sweep(events, rows)
     best = max(sw, key=lambda r: r["net"])
     (out_dir / f"metrics{tag}.json").write_text(json.dumps({"pair": pm, "sweep": sw, "best": best}, indent=1))

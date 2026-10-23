@@ -46,19 +46,20 @@ class VLMVerifier:
     def device(self):
         return next(self.model.parameters()).device
 
-    def scores(self, inputs: dict) -> torch.Tensor:
-        """Devuelve logit_yes - logit_no por elemento del batch (B,)."""
+    def scores(self, inputs: dict, model=None) -> torch.Tensor:
+        """Devuelve logit_yes - logit_no por elemento del batch (B,). `model`: envoltorio DDP opcional."""
+        model = model or self.model
         batch = {k: v.to(self.device) if torch.is_tensor(v) else v
                  for k, v in inputs.items() if k not in ("labels_bin", "meta")}
         try:
-            out = self.model(**batch, logits_to_keep=1, use_cache=False)
+            out = model(**batch, logits_to_keep=1, use_cache=False)
         except TypeError:  # versiones sin logits_to_keep
-            out = self.model(**batch, use_cache=False)
+            out = model(**batch, use_cache=False)
         last = out.logits[:, -1, :].float()  # padding a la izquierda -> última posición válida
         return last[:, self.id_yes] - last[:, self.id_no]
 
-    def loss(self, inputs: dict, pos_weight: float | None = None) -> tuple[torch.Tensor, torch.Tensor]:
-        s = self.scores(inputs)
+    def loss(self, inputs: dict, pos_weight: float | None = None, model=None) -> tuple[torch.Tensor, torch.Tensor]:
+        s = self.scores(inputs, model)
         y = inputs["labels_bin"].to(s.device)
         pw = torch.tensor([pos_weight], device=s.device) if pos_weight else None
         return F.binary_cross_entropy_with_logits(s, y, pos_weight=pw), s.detach()

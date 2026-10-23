@@ -44,3 +44,14 @@ DT_ROOT=... MODEL=qwen3vl-4b VIEW_MODE=both EXTRA_DATA_ARGS=--add_traj_text sbat
 DT_ROOT=... STAGES="zeroshot" MODEL=qwen3vl-2b sbatch run_vlm_xing.slurm
 ```
 El val se divide por secuencia en `*.sel.jsonl` (elegir checkpoint y beta) y `*.test.jsonl` (reportar).
+
+## Varias GPUs (DDP)
+`train_lora.py` y `evaluate.py` usan DDP bajo `torchrun` (un modelo completo por GPU, así que el
+modelo debe caber en una GPU; con 8B en bf16 caben en una A40 con LoRA + gradient checkpointing):
+```bash
+torchrun --standalone --nproc_per_node 4 train_lora.py --model qwen3vl-8b ... --grad_accum 2
+```
+`--grad_accum` es POR GPU: lote efectivo = batch_size × grad_accum × nº GPUs. `run_vlm_xing.slurm`
+detecta las GPUs asignadas y ajusta `GRAD_ACCUM` para mantener un lote efectivo de 16.
+La validación se reparte entre procesos; rank 0 calcula métricas y guarda `best/` y `last/`.
+Sin `torchrun` todo funciona como antes (1 proceso, `device_map=auto`).

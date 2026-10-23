@@ -6,11 +6,11 @@
 #SBATCH --partition=main
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --gres=gpu:a40:4             # TODAS las GPUs del trabajo en este nodo (p. ej. gpu:a100:5); las dos etapas usan DDP con todas. Comprueba los nombres con: sinfo -o "%N %G"
+#SBATCH --gres=gpu:a40:2             # 2 GPUs para ejercitar DDP (con 1 también funciona). Comprueba los nombres con: sinfo -o "%N %G"
 ##SBATCH --nodelist=gpu02            # opcional: fija el nodo (comprueba antes con: scontrol show node gpu02)
-#SBATCH --cpus-per-task=17           # unos 8 por GPU
-#SBATCH --mem=160G                   # unos 32G por GPU
-#SBATCH -t 72:00:00
+#SBATCH --cpus-per-task=16           # unos 8 por GPU
+#SBATCH --mem=64G                    # unos 32G por GPU
+#SBATCH -t 02:00:00
 # Prueba de humo: 1 secuencia, detecciones sintéticas desde GT (solo depuración), 2B en 4 bits.
 # Local:   DT_ROOT=/ruta/DanceTrack [SEQ=dancetrack0001] bash smoke_test.sh
 # SLURM:   mkdir -p logs && sbatch --export=NONE,DT_ROOT=/ruta/DanceTrack smoke_test.sh
@@ -31,6 +31,9 @@ fi
 DT_ROOT="${DT_ROOT:?define DT_ROOT}"
 SEQ="${SEQ:-$(ls "$DT_ROOT/train" | head -1)}"
 OUT="${OUT:-smoke_out}"
+NGPU="${NGPU:-$(python -c 'import torch; print(torch.cuda.device_count())')}"
+if (( NGPU > 1 )); then LAUNCH=(torchrun --standalone --nproc_per_node "$NGPU"); else LAUNCH=(python); fi
+echo "smoke: GPUs=$NGPU"
 M=(--model qwen3vl-2b --dtype float16 --load_4bit --n_mem 2)
 VAL="$OUT/ev/val"; TR="$OUT/ev/train"
 
@@ -39,9 +42,9 @@ mkdir -p "$OUT"
 SEQ2="${SEQ2:-$(ls "$DT_ROOT/val" | head -1)}"
 python mine_events.py --data_root "$DT_ROOT/train" --seqs "$SEQ"  --det_source gt --out_dir "$TR"  --trackers bytetrack botsort ocsort
 python mine_events.py --data_root "$DT_ROOT/val"   --seqs "$SEQ2" --det_source gt --out_dir "$VAL" --trackers bytetrack
-python evaluate.py "${M[@]}" --events "$VAL/events_bytetrack.jsonl" --limit 40 --out "$OUT/zs"
-python train_lora.py "${M[@]}" --train_events "$TR"/events_*.jsonl --val_events "$VAL/events_bytetrack.jsonl" \
+"${LAUNCH[@]}" evaluate.py "${M[@]}" --events "$VAL/events_bytetrack.jsonl" --limit 40 --out "$OUT/zs"
+"${LAUNCH[@]}" train_lora.py "${M[@]}" --train_events "$TR"/events_*.jsonl --val_events "$VAL/events_bytetrack.jsonl" \
   --val_limit 40 --epochs 1 --batch_size 1 --grad_accum 2 --out "$OUT/lora" --skip_frozen_eval
-python train_lora.py "${M[@]}" --train_events "$TR"/events_*.jsonl --val_events "$VAL/events_bytetrack.jsonl" \
+"${LAUNCH[@]}" train_lora.py "${M[@]}" --train_events "$TR"/events_*.jsonl --val_events "$VAL/events_bytetrack.jsonl" \
   --val_limit 40 --epochs 2 --batch_size 1 --grad_accum 2 --out "$OUT/lora" --skip_frozen_eval --resume
 echo "SMOKE OK"

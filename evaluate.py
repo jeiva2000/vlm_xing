@@ -3,7 +3,7 @@
 1) Puntúa todos los pares con el VLM y guarda scores.jsonl (caro, se hace una vez).
 2) Calcula métricas por par y por evento con barrido de beta/tau (barato).
 
-Ejemplo:
+Ejemplo (varias GPUs: torchrun --standalone --nproc_per_node N evaluate.py ...):
   python evaluate.py --model qwen3vl-8b --events events/val/events_bytetrack.jsonl \
       --view_mode frame --n_mem 4 --out runs/zs_8b_frame
 """
@@ -14,11 +14,12 @@ import json
 from pathlib import Path
 
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 
 from assoc import pair_metrics, sweep
 from common import read_jsonl, write_jsonl
 from dataset import CrossingPairDataset, VLMCollator
+from dist_utils import barrier, cleanup, device_map, gather_rows, init_dist
 
 
 def add_data_args(ap):
@@ -40,8 +41,12 @@ def add_model_args(ap):
 
 
 @torch.no_grad()
-def score_dataset(verifier, ds, collator, batch_size, num_workers=4, limit=None):
+def score_dataset(verifier, ds, collator, batch_size, num_workers=4, limit=None, rank=0, world=1):
+    """Con world > 1 cada proceso puntúa su porción de pares; hay que juntar las filas con gather_rows."""
     verifier.model.eval()
+    if world > 1:
+        ds = Subset(ds, range(rank, len(ds), world))
+        limit = -(-limit // world) if limit else None
     dl = DataLoader(ds, batch_size=batch_size, shuffle=False, collate_fn=collator, num_workers=num_workers)
     rows = []
     for bi, batch in enumerate(dl):
@@ -50,7 +55,7 @@ def score_dataset(verifier, ds, collator, batch_size, num_workers=4, limit=None)
             rows.append({**m, "score": v, "label": int(y)})
         if limit and len(rows) >= limit:
             break
-        if bi % 20 == 0:
+        if bi % 20 == 0 and rank == 0:
             print(f"  {len(rows)}/{len(ds)} pares")
     return rows
 
@@ -80,9 +85,12 @@ def main():
     add_data_args(ap)
     add_model_args(ap)
     args = ap.parse_args()
+    rank, world, local = init_dist()
+    main_proc = rank == 0
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    (out / "args.json").write_text(json.dumps(vars(args), indent=1))
+    if main_proc:
+        (out / "args.json").write_text(json.dumps(vars(args), indent=1))
 
     ds = CrossingPairDataset(args.events, view_mode=args.view_mode, n_mem=args.n_mem,
                              mem_stride=args.mem_stride, max_side=args.max_side,
@@ -90,18 +98,25 @@ def main():
     print(f"eventos={len(ds.events)} pares={len(ds)}")
     sp = out / "scores.jsonl"
     if args.reuse_scores and sp.exists():
+        if not main_proc:
+            return
         rows = read_jsonl(sp)
     else:
         from verifier import VLMVerifier
         v = VLMVerifier(args.model, args.dtype, load_4bit=args.load_4bit, attn_impl=args.attn_impl,
-                        max_pixels=args.max_pixels)
+                        max_pixels=args.max_pixels, device_map=device_map(world, local))
         if args.adapter:
             from peft import PeftModel
             v.model = PeftModel.from_pretrained(v.model, args.adapter)
         coll = VLMCollator(v.processor, {"enable_thinking": False} if args.no_thinking else None)
-        rows = score_dataset(v, ds, coll, args.batch_size, limit=args.limit)
-        write_jsonl(sp, rows)
-    report(ds.events, rows, out)
+        rows = gather_rows(score_dataset(v, ds, coll, args.batch_size, limit=args.limit,
+                                         rank=rank, world=world), world)
+        if main_proc:
+            write_jsonl(sp, rows)
+    if main_proc:
+        report(ds.events, rows, out)
+    barrier(world)
+    cleanup(world)
 
 
 if __name__ == "__main__":

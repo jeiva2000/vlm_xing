@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=vlm_xing
 #SBATCH --partition=gpu                 # AJUSTAR al nombre de la partición del cluster
-#SBATCH --gres=gpu:1                    # una sola GPU (p.ej. gpu:a40:1 o gpu:a100:1)
+#SBATCH --gres=gpu:1                    # nº de GPUs (p.ej. gpu:a40:4): zero-shot, LoRA y eval usan DDP con todas
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=2-00:00:00
@@ -34,7 +34,7 @@ N_MEM="${N_MEM:-4}"
 EXTRA_DATA_ARGS="${EXTRA_DATA_ARGS:-}"            # p.ej. "--add_traj_text"
 EPOCHS="${EPOCHS:-2}"
 BATCH="${BATCH:-2}"
-GRAD_ACCUM="${GRAD_ACCUM:-8}"
+GRAD_ACCUM="${GRAD_ACCUM:-}"                     # POR GPU; vacío = auto (lote efectivo 16 repartido entre las GPUs)
 STAGES="${STAGES:-mine zeroshot train eval}"
 
 TORCH_SPEC="torch==2.7.1 torchvision==0.22.1"     # última serie con wheels cu118
@@ -117,9 +117,16 @@ done
 
 export HF_HUB_OFFLINE=1   # en el nodo GPU todo debe estar ya descargado
 nvidia-smi --query-gpu=name,memory.total --format=csv
+NGPU="${NGPU:-$(python -c 'import torch; print(torch.cuda.device_count())')}"
+if (( NGPU > 1 )); then
+  LAUNCH=(torchrun --standalone --nproc_per_node "$NGPU")   # DDP: un proceso (y un modelo completo) por GPU
+else
+  LAUNCH=(python)
+fi
+[[ -n "$GRAD_ACCUM" ]] || GRAD_ACCUM=$(( 16 / (BATCH * NGPU) > 0 ? 16 / (BATCH * NGPU) : 1 ))
 DTYPE=bfloat16
 python -c 'import torch,sys; sys.exit(0 if torch.cuda.is_bf16_supported() else 1)' || DTYPE=float16
-log "dtype=$DTYPE  modelo=$MODEL  etapas=[$STAGES]"
+log "dtype=$DTYPE  modelo=$MODEL  etapas=[$STAGES]  GPUs=$NGPU  grad_accum/GPU=$GRAD_ACCUM"
 
 EV="$WORK_DIR/events"
 DETS="$WORK_DIR/dets/yolox_dancetrack"
@@ -165,7 +172,7 @@ if has_stage zeroshot; then
   out="$WORK_DIR/runs/zs_$RUN_TAG"
   reuse=(); [[ -s "$out/scores.jsonl" ]] && reuse=(--reuse_scores)
   log "Zero-shot -> $out"
-  python evaluate.py --model "$MODEL" --dtype "$DTYPE" --events "$EV/val/events_$VAL_TRACKER.test.jsonl" \
+  "${LAUNCH[@]}" evaluate.py --model "$MODEL" --dtype "$DTYPE" --events "$EV/val/events_$VAL_TRACKER.test.jsonl" \
     --out "$out" "${DATA_ARGS[@]}" "${reuse[@]}"
 fi
 
@@ -173,7 +180,7 @@ fi
 if has_stage train; then
   out="$WORK_DIR/runs/lora_$RUN_TAG"
   log "LoRA -> $out"
-  python train_lora.py --model "$MODEL" --dtype "$DTYPE" \
+  "${LAUNCH[@]}" train_lora.py --model "$MODEL" --dtype "$DTYPE" \
     --train_events "$EV"/train/events_*.jsonl --val_events "$EV/val/events_$VAL_TRACKER.sel.jsonl" \
     --out "$out" --resume --epochs "$EPOCHS" --batch_size "$BATCH" --grad_accum "$GRAD_ACCUM" "${DATA_ARGS[@]}"
 fi
@@ -184,7 +191,7 @@ if has_stage eval; then
   if [[ -d "$best" ]]; then
     for t in $TRACKERS; do
       log "Evaluación final ($t)"
-      python evaluate.py --model "$MODEL" --dtype "$DTYPE" --adapter "$best" \
+      "${LAUNCH[@]}" evaluate.py --model "$MODEL" --dtype "$DTYPE" --adapter "$best" \
         --events "$EV/val/events_$t.test.jsonl" --out "$WORK_DIR/runs/final_${RUN_TAG}_$t" "${DATA_ARGS[@]}"
     done
   else

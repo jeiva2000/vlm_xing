@@ -1,10 +1,12 @@
 #!/bin/bash
 #SBATCH --job-name=vlm_xing
-#SBATCH --partition=gpu                 # AJUSTAR al nombre de la partición del cluster
-#SBATCH --gres=gpu:1                    # nº de GPUs (p.ej. gpu:a40:4): zero-shot, LoRA y eval usan DDP con todas
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=64G
-#SBATCH --time=2-00:00:00
+#SBATCH --partition=main
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --gres=gpu:a40:4                # nº de GPUs: zero-shot, LoRA y eval usan DDP con todas. Comprueba: sinfo -o "%N %G"
+#SBATCH --cpus-per-task=32              # unos 8 por GPU
+#SBATCH --mem=160G                      # unos 32-40G por GPU
+#SBATCH --time=3-00:00:00
 #SBATCH --output=logs/%x_%j.out
 #SBATCH --error=logs/%x_%j.err
 # ---------------------------------------------------------------------------

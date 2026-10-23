@@ -53,33 +53,10 @@ cd "$CODE_DIR"
 source "$CODE_DIR/cluster_env.sh"
 
 # ------------------------------- entorno -----------------------------------
-# Conda (miniconda) si se encuentra conda.sh, si no un venv. Ver activate_env.sh.
-# Si el entorno no existe se crea e instalan las dependencias; si existe, solo se activa.
-# FORCE_INSTALL=1 reinstala las dependencias en un entorno existente.
-setup_env() {
-  CREATE_ENV=1 source "$CODE_DIR/activate_env.sh"
-  local marker="$ENV_PREFIX/.deps_installed"
-  if [[ -f "$marker" && "${FORCE_INSTALL:-0}" != 1 ]]; then
-    log "Entorno existente, solo se activa: $ENV_PREFIX"
-    return
-  fi
-  python -c 'import sys; assert sys.version_info >= (3, 10), sys.version' \
-    || { echo "Se necesita Python >= 3.10 en el entorno"; exit 1; }
-  log "Instalando dependencias en $ENV_PREFIX"
-  pip install -U pip wheel setuptools
-  # shellcheck disable=SC2086
-  pip install $TORCH_SPEC --index-url "$TORCH_INDEX"
-  pip install -r requirements.txt
-  pip install --no-build-isolation --no-deps yolox==0.3.0
-  touch "$marker"
-}
+# Crea el entorno (conda) si no existe e instala dependencias; si existe, solo lo activa. Ver setup_env.sh.
+# shellcheck disable=SC1091
+source "$CODE_DIR/setup_env.sh"
 
-# flock evita que dos jobs creen/instalen a la vez sobre el mismo entorno
-mkdir -p "$HOME/envs"
-(
-  flock -w 3600 9 || { echo "No se pudo bloquear el entorno"; exit 1; }
-  setup_env
-) 9>"$HOME/envs/${CONDA_ENV:-vlm_xing}.lock"
 # shellcheck disable=SC1091
 source "$CODE_DIR/activate_env.sh"
 

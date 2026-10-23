@@ -22,7 +22,7 @@ if [[ -n "${SLURM_JOB_ID:-}" ]]; then  # --export=NONE: cargar módulos y entorn
   # shellcheck disable=SC1091
   source "$SLURM_SUBMIT_DIR/cluster_env.sh"    # módulos GCC/CUDA + variables
   # shellcheck disable=SC1091
-  source "$SLURM_SUBMIT_DIR/activate_env.sh"   # miniconda (CONDA_ENV, def. vlm_xing) o venv
+  source "$SLURM_SUBMIT_DIR/setup_env.sh"      # crea el entorno si no existe (CONDA_ENV, def. vlm_xing); si existe, lo activa
   export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
 fi
 DT_ROOT="${DT_ROOT:?define DT_ROOT}"

@@ -8,7 +8,7 @@
 # ---------------------------------------------------------------------------
 
 # Base
-numpy<3
+numpy>=1.26,<2.3   # numpy>=2.4 rompe boxmot (OC-SORT: float() sobre arrays de ndim>0)
 scipy
 opencv-python
 pillow

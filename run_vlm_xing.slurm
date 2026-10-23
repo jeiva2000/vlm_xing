@@ -49,11 +49,8 @@ mkdir -p "$CODE_DIR/logs" "$WORK_DIR"
 cd "$CODE_DIR"
 
 # ------------------------------- módulos -----------------------------------
-if command -v module >/dev/null 2>&1; then
-  module purge || true
-  # shellcheck disable=SC2086
-  module load $MODULES ${PYTHON_MODULE}
-fi
+# shellcheck disable=SC1091
+source "$CODE_DIR/cluster_env.sh"
 
 # ------------------------------- entorno -----------------------------------
 # Conda (miniconda) si se encuentra conda.sh, si no un venv en $ENV_DIR. Ver activate_env.sh.

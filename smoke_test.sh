@@ -19,11 +19,8 @@
 set -euo pipefail
 if [[ -n "${SLURM_JOB_ID:-}" ]]; then  # --export=NONE: cargar módulos y entorno a mano
   cd "${SLURM_SUBMIT_DIR:-.}"
-  if command -v module >/dev/null 2>&1; then
-    module purge || true
-    # shellcheck disable=SC2086
-    module load ${MODULES:-GCC/12.2.0 CUDA/11.8.0} ${PYTHON_MODULE:-}
-  fi
+  # shellcheck disable=SC1091
+  source "$SLURM_SUBMIT_DIR/cluster_env.sh"    # módulos GCC/CUDA + variables
   # shellcheck disable=SC1091
   source "$SLURM_SUBMIT_DIR/activate_env.sh"   # miniconda (CONDA_ENV, def. vlm_xing) o venv
   export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
@@ -37,7 +34,7 @@ echo "smoke: GPUs=$NGPU"
 M=(--model qwen3vl-2b --dtype float16 --load_4bit --n_mem 2)
 VAL="$OUT/ev/val"; TR="$OUT/ev/train"
 
-mkdir -p "$OUT"
+mkdir -p "$OUT" logs
 # mismas secuencia en train/val no sirve (el assert lo impide): usa dos secuencias distintas
 SEQ2="${SEQ2:-$(ls "$DT_ROOT/val" | head -1)}"
 python mine_events.py --data_root "$DT_ROOT/train" --seqs "$SEQ"  --det_source gt --out_dir "$TR"  --trackers bytetrack botsort ocsort

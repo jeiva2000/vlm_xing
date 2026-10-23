@@ -16,6 +16,11 @@ import numpy as np
 def make_tracker(name: str, **kwargs):
     import boxmot
 
+    # BoT-SORT usa ReID por defecto y exige pesos; aquí se desactiva (solo movimiento + CMC), así
+    # no hay que descargar modelos y el resultado no depende de un extractor de apariencia.
+    if name == "botsort":
+        kwargs.setdefault("with_reid", False)
+
     # API nueva (boxmot >= ~v16): create_tracker("bytetrack", **overrides)
     try:
         return boxmot.create_tracker(name, **kwargs)
@@ -28,6 +33,20 @@ def make_tracker(name: str, **kwargs):
     if cfg is None:
         from boxmot.utils import TRACKER_CONFIGS  # type: ignore
         cfg = Path(TRACKER_CONFIGS) / f"{name}.yaml"
+    extra = {k: kwargs.pop(k) for k in ("with_reid",) if k in kwargs}
+    if extra:  # la API antigua solo lee parámetros del yaml: se escribe una copia con los overrides
+        import tempfile
+
+        import yaml
+
+        with open(cfg) as fh:
+            conf = yaml.safe_load(fh)
+        for k, v in extra.items():
+            conf[k] = {"type": "choice", "default": v, "options": [v]}
+        tmp = tempfile.NamedTemporaryFile("w", suffix=f"_{name}.yaml", delete=False)
+        yaml.safe_dump(conf, tmp)
+        tmp.close()
+        cfg = tmp.name
     return boxmot.create_tracker(
         name, cfg,
         kwargs.pop("reid_weights", None),

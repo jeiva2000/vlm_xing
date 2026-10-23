@@ -8,7 +8,7 @@
 # ---------------------------------------------------------------------------
 
 # Base
-numpy
+numpy<3
 scipy
 opencv-python
 pillow
@@ -16,7 +16,7 @@ tqdm
 
 # Trackers (ByteTrack / BoT-SORT / OC-SORT). La API cambia entre versiones:
 # si fijas otra, revisa tracker_adapter.py
-boxmot
+boxmot<26   # congelar la versión exacta tras la prueba piloto (ver smoke_test.sh)
 
 # Dependencias de YOLOX (instalado aparte con --no-deps)
 loguru
@@ -26,9 +26,9 @@ psutil
 pycocotools
 
 # VLM: Qwen3-VL requiere transformers >= 4.57. Qwen3.5 requiere una versión más reciente.
-transformers>=4.57.0
+transformers>=4.57.0,<5
 accelerate
-peft>=0.17.0
+peft>=0.17.0,<0.22
 huggingface_hub
 
 # Opcional: carga en 4 bits para depurar en GPUs pequeñas (RTX 2080)

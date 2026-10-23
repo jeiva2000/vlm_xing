@@ -55,6 +55,8 @@ def main():
     ap.add_argument("--val_limit", type=int, default=None, help="máx. pares de validación por evaluación")
     ap.add_argument("--evals_per_epoch", type=int, default=2)
     ap.add_argument("--skip_frozen_eval", action="store_true")
+    ap.add_argument("--resume", action="store_true",
+                    help="continúa desde out/last si existe (se guarda en cada evaluación)")
     ap.add_argument("--seed", type=int, default=0)
     add_data_args(ap)
     add_model_args(ap)
@@ -80,7 +82,11 @@ def main():
 
     # ---------------- prueba congelada (época 0) ----------------
     best_net = -math.inf
-    if not args.skip_frozen_eval:
+    last_dir = out / "last"
+    resuming = args.resume and (last_dir / "state.pt").exists()
+    if resuming and args.full_llm:
+        raise SystemExit("--resume no está soportado con --full_llm")
+    if not args.skip_frozen_eval and not resuming:
         print("== Evaluación congelada (zero-shot) ==")
         rows = score_dataset(v, va, coll, args.batch_size * 2, limit=args.val_limit)
         best_net = report(va.events, rows, out, tag="_frozen")["net"]
@@ -98,18 +104,39 @@ def main():
 
     params = [p for p in v.model.parameters() if p.requires_grad]
     opt = torch.optim.AdamW(params, lr=args.lr, weight_decay=0.0)
-    dl = DataLoader(tr, batch_size=args.batch_size, shuffle=True, collate_fn=coll,
-                    num_workers=4, drop_last=True)
-    total = args.epochs * len(dl) // args.grad_accum
+    n_batches = len(tr) // args.batch_size
+    total = args.epochs * n_batches // args.grad_accum
     from transformers import get_cosine_schedule_with_warmup
     sched = get_cosine_schedule_with_warmup(opt, int(args.warmup * total), total)
-    eval_every = max(1, len(dl) // args.evals_per_epoch)
+    eval_every = max(1, n_batches // args.evals_per_epoch)
 
-    step = 0
-    for ep in range(args.epochs):
+    step, start_ep, start_it = 0, 0, 0
+    if resuming:
+        from peft import set_peft_model_state_dict
+        from safetensors.torch import load_file
+        set_peft_model_state_dict(v.model, load_file(str(last_dir / "adapter_model.safetensors")))
+        st = torch.load(last_dir / "state.pt", map_location="cpu", weights_only=False)
+        opt.load_state_dict(st["opt"]); sched.load_state_dict(st["sched"])
+        step, start_ep, start_it, best_net = st["step"], st["ep"], st["it"], st["best_net"]
+        print(f"== Reanudando: ep {start_ep}, lote {start_it}, step {step}, mejor neto {best_net}")
+
+    def save_last(ep, it_done):
+        # gradiente acumulado a medias se descarta al reanudar (como mucho grad_accum-1 lotes)
+        if it_done >= n_batches:
+            ep, it_done = ep + 1, 0
+        v.model.save_pretrained(last_dir)
+        torch.save({"opt": opt.state_dict(), "sched": sched.state_dict(), "step": step,
+                    "ep": ep, "it": it_done, "best_net": best_net}, last_dir / "state.pt")
+
+    for ep in range(start_ep, args.epochs):
         v.model.train()
         run = []
-        for it, batch in enumerate(dl):
+        skip = start_it if ep == start_ep else 0
+        # orden determinista por época: permite saltar los lotes ya vistos al reanudar
+        perm = torch.randperm(len(tr), generator=torch.Generator().manual_seed(args.seed + ep))
+        perm = perm[: n_batches * args.batch_size][skip * args.batch_size:].tolist()
+        dl = DataLoader(tr, batch_size=args.batch_size, sampler=perm, collate_fn=coll, num_workers=4)
+        for it, batch in enumerate(dl, start=skip):
             loss, _ = v.loss(batch, pos_weight)
             (loss / args.grad_accum).backward()
             run.append(loss.item())
@@ -119,7 +146,7 @@ def main():
                 step += 1
                 if step % 10 == 0:
                     print(f"ep {ep} step {step}/{total} loss {np.mean(run[-50:]):.4f}")
-            if (it + 1) % eval_every == 0 or it + 1 == len(dl):
+            if (it + 1) % eval_every == 0 or it + 1 == n_batches:
                 rows = score_dataset(v, va, coll, args.batch_size * 2, limit=args.val_limit)
                 res = report(va.events, rows, out, tag=f"_ep{ep}_it{it+1}")
                 if res["net"] > best_net:
@@ -127,6 +154,7 @@ def main():
                     v.model.save_pretrained(out / "best")
                     (out / "best" / "selection.json").write_text(json.dumps(res, indent=1))
                     print(f"** guardado: neto={best_net} (beta={res['beta']}, tau={res['tau']})")
+                save_last(ep, it + 1)
                 v.model.train()
     print(f"mejor neto en validación: {best_net}")
 

@@ -110,6 +110,11 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
   exit 0
 fi
 
+for split in train val; do
+  [[ -f "$DT_ROOT/$split/$(ls "$DT_ROOT/$split" 2>/dev/null | head -1)/seqinfo.ini" ]] \
+    || { echo "DT_ROOT inválido ($DT_ROOT): se esperan $DT_ROOT/{train,val}/<seq>/seqinfo.ini"; exit 1; }
+done
+
 export HF_HUB_OFFLINE=1   # en el nodo GPU todo debe estar ya descargado
 nvidia-smi --query-gpu=name,memory.total --format=csv
 DTYPE=bfloat16
@@ -170,7 +175,7 @@ if has_stage train; then
   log "LoRA -> $out"
   python train_lora.py --model "$MODEL" --dtype "$DTYPE" \
     --train_events "$EV"/train/events_*.jsonl --val_events "$EV/val/events_$VAL_TRACKER.sel.jsonl" \
-    --out "$out" --epochs "$EPOCHS" --batch_size "$BATCH" --grad_accum "$GRAD_ACCUM" "${DATA_ARGS[@]}"
+    --out "$out" --resume --epochs "$EPOCHS" --batch_size "$BATCH" --grad_accum "$GRAD_ACCUM" "${DATA_ARGS[@]}"
 fi
 
 # ------------- 4) evaluación final del mejor adaptador (todos los trackers) -------------

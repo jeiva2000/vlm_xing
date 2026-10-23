@@ -1,0 +1,35 @@
+# ---------------------------------------------------------------------------
+# Instalación (orden importante):
+#   1) PyTorch acorde a tu CUDA. En el cluster (módulo CUDA/11.8.0):
+#        pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+#   2) pip install -r requirements.txt
+#   3) YOLOX (se compila contra el torch ya instalado; sus dependencias oficiales están desfasadas):
+#        pip install --no-build-isolation --no-deps yolox==0.3.0
+# ---------------------------------------------------------------------------
+
+# Base
+numpy
+scipy
+opencv-python
+pillow
+tqdm
+
+# Trackers (ByteTrack / BoT-SORT / OC-SORT). La API cambia entre versiones:
+# si fijas otra, revisa tracker_adapter.py
+boxmot
+
+# Dependencias de YOLOX (instalado aparte con --no-deps)
+loguru
+tabulate
+thop
+psutil
+pycocotools
+
+# VLM: Qwen3-VL requiere transformers >= 4.57. Qwen3.5 requiere una versión más reciente.
+transformers>=4.57.0
+accelerate
+peft>=0.17.0
+huggingface_hub
+
+# Opcional: carga en 4 bits para depurar en GPUs pequeñas (RTX 2080)
+bitsandbytes

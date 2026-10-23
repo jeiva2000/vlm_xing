@@ -1,0 +1,9 @@
+work/
+models/
+logs/
+runs/
+events/
+dets/
+__pycache__/
+*.pyc
+.DS_Store

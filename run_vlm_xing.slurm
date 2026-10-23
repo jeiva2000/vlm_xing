@@ -90,6 +90,7 @@ for split in train val; do
     || { echo "DT_ROOT inválido ($DT_ROOT): se esperan $DT_ROOT/{train,val}/<seq>/seqinfo.ini"; exit 1; }
 done
 
+export PYTHONUNBUFFERED=1   # el log del job se ve en tiempo real
 export HF_HUB_OFFLINE=1   # en el nodo GPU todo debe estar ya descargado
 nvidia-smi --query-gpu=name,memory.total --format=csv
 NGPU="${NGPU:-$(python -c 'import torch; print(torch.cuda.device_count())')}"

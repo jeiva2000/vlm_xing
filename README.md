@@ -73,3 +73,13 @@ python eval_tracks.py --setup   # clona TrackEval en third_party/ (git + interne
 `mine_events.py` guarda ahora `tracks_<tracker>/<seq>.txt` (salida cruda); si no existen se regeneran solo para val.test.
 Resultados: `work/runs/trackeval_<tag>/<tracker>/metrics_trackeval.json`. Solo se evalúa el adaptador entrenado
 (beta/tau elegidos en val.sel); las secuencias sin eventos no entran en la evaluación.
+
+## Imágenes de casos (acierta / falla)
+`visualize_cases.py` clasifica cada memoria de val.test en `fixed` (el VLM arregla al tracker), `broken` (lo rompe),
+`correct` (ambos aciertan) y `wrong` (ambos fallan), y guarda una imagen por caso: frames de referencia + candidatos
+del frame de consulta con su score (borde verde = candidato correcto; etiquetas TRUTH / TRK / VLM). Abre
+`work/runs/cases_<tag>/<tracker>/index.html`. Etapa `viz` del `.slurm` (`MAX_CASES` = imágenes por categoría):
+```bash
+STAGES="viz" sbatch --export=NONE,DT_ROOT=... run_vlm_xing.slurm
+```
+Para el zero-shot: `python visualize_cases.py --events ... --scores runs/zs_*/scores.jsonl --beta 2 --tau 0 --out ...`.

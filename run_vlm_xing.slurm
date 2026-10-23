@@ -40,7 +40,7 @@ EXTRA_DATA_ARGS="${EXTRA_DATA_ARGS:-}"            # p.ej. "--add_traj_text"
 EPOCHS="${EPOCHS:-2}"
 BATCH="${BATCH:-2}"
 GRAD_ACCUM="${GRAD_ACCUM:-}"                     # POR GPU; vacío = auto (lote efectivo 16 repartido entre las GPUs)
-STAGES="${STAGES:-mine zeroshot train eval trackeval}"
+STAGES="${STAGES:-mine zeroshot train eval trackeval viz}"
 
 TORCH_SPEC="torch==2.7.1 torchvision==0.22.1"     # última serie con wheels cu118
 TORCH_INDEX="https://download.pytorch.org/whl/cu118"
@@ -210,6 +210,24 @@ if has_stage trackeval; then
     done
   else
     log "No hay adaptador guardado: se omite TrackEval"
+  fi
+fi
+
+# ------------- 6) imágenes de casos: dónde el VLM acierta y dónde falla (val.test) -------------
+# runs/cases_<tag>/<tracker>/index.html (fixed / broken / correct / wrong). MAX_CASES = imágenes por categoría.
+if has_stage viz; then
+  best="$WORK_DIR/runs/lora_$RUN_TAG/best"
+  if [[ -d "$best" ]]; then
+    for t in $TRACKERS; do
+      fin="$WORK_DIR/runs/final_${RUN_TAG}_$t"
+      [[ -s "$fin/scores.jsonl" ]] || { log "Casos ($t): faltan scores, se omite"; continue; }
+      log "Imágenes de casos ($t)"
+      python visualize_cases.py --events "$EV/val/events_$t.test.jsonl" --scores "$fin/scores.jsonl" \
+        --selection "$best/selection.json" --out "$WORK_DIR/runs/cases_$RUN_TAG/$t" \
+        --max_per_cat "${MAX_CASES:-12}" --n_mem "$N_MEM"
+    done
+  else
+    log "No hay adaptador guardado: se omiten las imágenes de casos"
   fi
 fi
 

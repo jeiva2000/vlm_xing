@@ -221,6 +221,9 @@ def main():
     ap.add_argument("--gt_jitter", type=float, default=3.0, help="solo con det_source=gt (depuración)")
     ap.add_argument("--gt_drop", type=float, default=0.05)
     ap.add_argument("--trackers", nargs="+", default=["bytetrack", "botsort", "ocsort"])
+    ap.add_argument("--reid", action="store_true",
+                    help="BoT-SORT con ReID (descarga los pesos si faltan; sin la opción va sin apariencia)")
+    ap.add_argument("--reid_weights", default="models/osnet_x0_25_msmt17.pt")
     ap.add_argument("--tracker_kwargs", default="{}", help="JSON con overrides para make_tracker")
     ap.add_argument("--out_dir", required=True)
     ap.add_argument("--seqs", nargs="*", help="subconjunto de secuencias")
@@ -248,6 +251,7 @@ def main():
                 detect_sequence(det, s, Path(args.det_dir) / f"{s.name}.txt", args.det_batch)
             del det
     tk = json.loads(args.tracker_kwargs)
+    tk.update(reid=args.reid, reid_weights=args.reid_weights)  # solo los usa BoT-SORT
     for tname in args.trackers:
         all_recs, n_sw, n_cov = [], 0, 0
         for s in seqs:

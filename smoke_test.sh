@@ -37,7 +37,7 @@ VAL="$OUT/ev/val"; TR="$OUT/ev/train"
 mkdir -p "$OUT" logs
 # mismas secuencia en train/val no sirve (el assert lo impide): usa dos secuencias distintas
 SEQ2="${SEQ2:-$(ls "$DT_ROOT/val" | head -1)}"
-python mine_events.py --data_root "$DT_ROOT/train" --seqs "$SEQ"  --det_source gt --out_dir "$TR"  --trackers bytetrack botsort ocsort
+python mine_events.py --data_root "$DT_ROOT/train" --seqs "$SEQ"  --det_source gt --out_dir "$TR"  --trackers bytetrack botsort ocsort $([[ "${REID:-0}" == 1 ]] && echo --reid)
 python mine_events.py --data_root "$DT_ROOT/val"   --seqs "$SEQ2" --det_source gt --out_dir "$VAL" --trackers bytetrack
 "${LAUNCH[@]}" evaluate.py "${M[@]}" --events "$VAL/events_bytetrack.jsonl" --limit 40 --out "$OUT/zs"
 "${LAUNCH[@]}" train_lora.py "${M[@]}" --train_events "$TR"/events_*.jsonl --val_events "$VAL/events_bytetrack.jsonl" \

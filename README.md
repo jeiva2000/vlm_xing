@@ -55,3 +55,8 @@ torchrun --standalone --nproc_per_node 4 train_lora.py --model qwen3vl-8b ... --
 detecta las GPUs asignadas y ajusta `GRAD_ACCUM` para mantener un lote efectivo de 16.
 La validación se reparte entre procesos; rank 0 calcula métricas y guarda `best/` y `last/`.
 Sin `torchrun` todo funciona como antes (1 proceso, `device_map=auto`).
+
+## BoT-SORT con ReID
+Por defecto BoT-SORT va sin ReID (solo movimiento + CMC). Con `--reid` (o `REID=1` en el `.slurm`/smoke test)
+usa apariencia con `models/osnet_x0_25_msmt17.pt`, que se descarga si falta (gdown, necesita internet; se puede
+cambiar con `--reid_weights`). Los eventos de BoT-SORT con y sin ReID no son comparables: usa `--out_dir` distintos.

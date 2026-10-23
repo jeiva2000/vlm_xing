@@ -32,6 +32,7 @@ TRACKERS="${TRACKERS:-bytetrack botsort ocsort}"
 VAL_TRACKER="${VAL_TRACKER:-bytetrack}"           # tracker cuyos eventos val.sel eligen el checkpoint
 VIEW_MODE="${VIEW_MODE:-frame}"
 N_MEM="${N_MEM:-4}"
+REID="${REID:-0}"                                 # 1 = BoT-SORT con ReID (descarga osnet si falta)
 EXTRA_DATA_ARGS="${EXTRA_DATA_ARGS:-}"            # p.ej. "--add_traj_text"
 EPOCHS="${EPOCHS:-2}"
 BATCH="${BATCH:-2}"
@@ -114,7 +115,7 @@ if has_stage mine; then
       log "Minando eventos: $split"
       # shellcheck disable=SC2086
       python mine_events.py --data_root "$DT_ROOT/$split" --det_dir "$DETS/$split" \
-        --trackers $TRACKERS --out_dir "$EV/$split" --fp16
+        --trackers $TRACKERS --out_dir "$EV/$split" --fp16 $([[ "$REID" == 1 ]] && echo --reid)
     else
       log "Eventos de $split ya existen, se omite"
     fi

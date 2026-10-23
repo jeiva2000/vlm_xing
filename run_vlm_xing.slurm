@@ -20,7 +20,8 @@ set -euo pipefail
 CODE_DIR="${CODE_DIR:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")" && pwd)}}"
 WORK_DIR="${WORK_DIR:-$CODE_DIR/work}"           # detecciones, eventos, runs
 DT_ROOT="${DT_ROOT:-/path/to/DanceTrack}"         # AJUSTAR: contiene train/ y val/
-ENV_DIR="${ENV_DIR:-$HOME/envs/vlm_xing}"
+ENV_DIR="${ENV_DIR:-$HOME/envs/vlm_xing}"        # solo si no hay conda (venv)
+CONDA_ENV="${CONDA_ENV:-vlm_xing}"                # entorno de miniconda (activate_env.sh)
 PYTHON_BIN="${PYTHON_BIN:-python3}"               # debe ser Python >= 3.10
 PYTHON_MODULE="${PYTHON_MODULE:-}"                # p.ej. "Python/3.10.8-GCCcore-12.2.0" si hace falta
 MODULES="${MODULES:-GCC/12.2.0 CUDA/11.8.0}"
@@ -55,23 +56,19 @@ if command -v module >/dev/null 2>&1; then
 fi
 
 # ------------------------------- entorno -----------------------------------
+# Conda (miniconda) si se encuentra conda.sh, si no un venv en $ENV_DIR. Ver activate_env.sh.
 setup_env() {
-  local stamp="$ENV_DIR/.req_hash"
   local want
   want="$(cat requirements.txt <(echo "$TORCH_SPEC") | sha256sum | cut -d' ' -f1)"
-  if [[ -f "$ENV_DIR/bin/activate" && -f "$stamp" && "$(cat "$stamp")" == "$want" ]]; then
-    log "Entorno al día: $ENV_DIR"
+  CREATE_ENV=1 source "$CODE_DIR/activate_env.sh"
+  local stamp="$ENV_PREFIX/.req_hash"
+  if [[ -f "$stamp" && "$(cat "$stamp")" == "$want" ]]; then
+    log "Entorno al día: $ENV_PREFIX"
     return
   fi
-  "$PYTHON_BIN" -c 'import sys; assert sys.version_info >= (3, 10), sys.version' \
-    || { echo "Se necesita Python >= 3.10 (usa PYTHON_MODULE o PYTHON_BIN)"; exit 1; }
-  if [[ ! -f "$ENV_DIR/bin/activate" ]]; then
-    log "Creando entorno en $ENV_DIR"
-    "$PYTHON_BIN" -m venv "$ENV_DIR"
-  fi
-  # shellcheck disable=SC1091
-  source "$ENV_DIR/bin/activate"
-  log "Instalando dependencias"
+  python -c 'import sys; assert sys.version_info >= (3, 10), sys.version' \
+    || { echo "Se necesita Python >= 3.10 en el entorno"; exit 1; }
+  log "Instalando dependencias en $ENV_PREFIX"
   pip install -U pip wheel setuptools
   # shellcheck disable=SC2086
   pip install $TORCH_SPEC --index-url "$TORCH_INDEX"
@@ -80,14 +77,17 @@ setup_env() {
   echo "$want" > "$stamp"
 }
 
-# flock evita que dos jobs instalen a la vez sobre el mismo entorno
-mkdir -p "$(dirname "$ENV_DIR")"
-(
-  flock -w 3600 9 || { echo "No se pudo bloquear el entorno"; exit 1; }
-  setup_env
-) 9>"$ENV_DIR.lock"
+# En el nodo GPU (job) solo se activa: instalar/crear entornos es cosa del login (bash run_vlm_xing.slurm)
+if [[ -z "${SLURM_JOB_ID:-}" ]]; then
+  # flock evita que dos ejecuciones instalen a la vez sobre el mismo entorno
+  mkdir -p "$HOME/envs"
+  (
+    flock -w 3600 9 || { echo "No se pudo bloquear el entorno"; exit 1; }
+    setup_env
+  ) 9>"$HOME/envs/${CONDA_ENV:-vlm_xing}.lock"
+fi
 # shellcheck disable=SC1091
-source "$ENV_DIR/bin/activate"
+source "$CODE_DIR/activate_env.sh"
 
 python - <<EOF
 import torch, transformers

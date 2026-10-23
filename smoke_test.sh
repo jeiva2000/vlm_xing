@@ -14,7 +14,7 @@
 # Prueba de humo: 1 secuencia, detecciones sintéticas desde GT (solo depuración), 2B en 4 bits.
 # Local:   DT_ROOT=/ruta/DanceTrack [SEQ=dancetrack0001] bash smoke_test.sh
 # SLURM:   mkdir -p logs && sbatch --export=NONE,DT_ROOT=/ruta/DanceTrack smoke_test.sh
-#          (con --export=NONE el entorno no se hereda: pasa DT_ROOT/SEQ/ENV_DIR/MODULES así)
+#          (con --export=NONE el entorno no se hereda: pasa DT_ROOT/SEQ/CONDA_ENV/MODULES así)
 # Comprueba mine -> evaluate -> train (1 época corta) -> reanudación, sin resultados válidos.
 set -euo pipefail
 if [[ -n "${SLURM_JOB_ID:-}" ]]; then  # --export=NONE: cargar módulos y entorno a mano
@@ -25,7 +25,7 @@ if [[ -n "${SLURM_JOB_ID:-}" ]]; then  # --export=NONE: cargar módulos y entorn
     module load ${MODULES:-GCC/12.2.0 CUDA/11.8.0} ${PYTHON_MODULE:-}
   fi
   # shellcheck disable=SC1091
-  source "${ENV_DIR:-$HOME/envs/vlm_xing}/bin/activate"
+  source "$SLURM_SUBMIT_DIR/activate_env.sh"   # miniconda (CONDA_ENV, def. vlm_xing) o venv
   export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
 fi
 DT_ROOT="${DT_ROOT:?define DT_ROOT}"

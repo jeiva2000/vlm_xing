@@ -83,3 +83,16 @@ del frame de consulta con su score (borde verde = candidato correcto; etiquetas 
 STAGES="viz" sbatch --export=NONE,DT_ROOT=... run_vlm_xing.slurm
 ```
 Para el zero-shot: `python visualize_cases.py --events ... --scores runs/zs_*/scores.jsonl --beta 2 --tau 0 --out ...`.
+
+## Entrenamiento amplio (más épocas, un job por modelo, checkpoints)
+```bash
+DT_ROOT=/ruta/DanceTrack bash launch_wide.sh      # login; lanza un job por modelo, encadenados
+DT_ROOT=... MODELS="qwen3vl-4b qwen3vl-8b" EPOCHS=10 PATIENCE=8 CHAIN=0 bash launch_wide.sh
+```
+Usa `PROFILE=wide` del `.slurm` (8 épocas, `--save_all`, parada temprana con paciencia 6 evaluaciones, sufijo `_e<EPOCHS>` en el
+nombre del run para no mezclarse con los cortos). Cada run en `work/runs/lora_<modelo>_<vista>_m<N>_e<EPOCHS>/` contiene:
+`best/` (mejor neto en val.sel), `last/` (para `--resume`), `ckpt_ep<E>_it<I>/` (adaptador de CADA evaluación) y
+`history.jsonl` (pérdida train/val, AUC y neto por evaluación). Curvas: `python plot_history.py work/runs/lora_*_e8`.
+Un checkpoint concreto se evalúa con `evaluate.py --adapter .../ckpt_ep3_it500 ...`. `--resume` se niega a continuar si la
+configuración (épocas, lr, lote, nº de GPUs...) cambió respecto a `last/`: usa otro `--out`. Tras un corte por tiempo,
+relanza el mismo comando y continúa. Con el modelo entero por GPU (DDP) caben 2B/4B/8B; 32B no.

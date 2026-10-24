@@ -30,6 +30,14 @@ PYTHON_MODULE="${PYTHON_MODULE:-}"                # p.ej. "Python/3.10.8-GCCcore
 MODULES="${MODULES:-GCC/12.2.0 CUDA/11.8.0}"
 export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"   # en almacenamiento compartido
 
+# PROFILE=wide: entrenamiento largo con checkpoints de cada evaluación y parada temprana (ver launch_wide.sh).
+# El sufijo _e<EPOCHS> separa estos runs de los cortos (si no, --resume mezclaría configuraciones distintas).
+PROFILE="${PROFILE:-}"
+if [[ "$PROFILE" == wide ]]; then
+  EPOCHS="${EPOCHS:-8}"; SAVE_ALL="${SAVE_ALL:-1}"; PATIENCE="${PATIENCE:-6}"; TAG_SUFFIX="${TAG_SUFFIX:-_e${EPOCHS}}"
+fi
+SAVE_ALL="${SAVE_ALL:-0}"; PATIENCE="${PATIENCE:-}"; TAG_SUFFIX="${TAG_SUFFIX:-}"; LR="${LR:-}"
+
 MODEL="${MODEL:-qwen3vl-8b}"
 TRACKERS="${TRACKERS:-bytetrack botsort ocsort}"
 VAL_TRACKER="${VAL_TRACKER:-bytetrack}"           # tracker cuyos eventos val.sel eligen el checkpoint
@@ -110,7 +118,7 @@ log "dtype=$DTYPE  modelo=$MODEL  etapas=[$STAGES]  GPUs=$NGPU  grad_accum/GPU=$
 
 EV="$WORK_DIR/events"
 DETS="$WORK_DIR/dets/yolox_dancetrack"
-RUN_TAG="${MODEL}_${VIEW_MODE}_m${N_MEM}"
+RUN_TAG="${MODEL}_${VIEW_MODE}_m${N_MEM}${TAG_SUFFIX}"
 # shellcheck disable=SC2206
 DATA_ARGS=(--view_mode "$VIEW_MODE" --n_mem "$N_MEM" $EXTRA_DATA_ARGS)
 
@@ -159,10 +167,14 @@ fi
 # ----------------------------- 3) fine-tuning -------------------------------
 if has_stage train; then
   out="$WORK_DIR/runs/lora_$RUN_TAG"
+  TRAIN_EXTRA=()
+  [[ "$SAVE_ALL" == 1 ]] && TRAIN_EXTRA+=(--save_all)
+  [[ -n "$PATIENCE" ]] && TRAIN_EXTRA+=(--patience "$PATIENCE")
+  [[ -n "$LR" ]] && TRAIN_EXTRA+=(--lr "$LR")
   log "LoRA -> $out"
   "${LAUNCH[@]}" train_lora.py --model "$MODEL" --dtype "$DTYPE" \
     --train_events "$EV"/train/events_*.jsonl --val_events "$EV/val/events_$VAL_TRACKER.sel.jsonl" \
-    --out "$out" --resume --epochs "$EPOCHS" --batch_size "$BATCH" --grad_accum "$GRAD_ACCUM" "${DATA_ARGS[@]}"
+    --out "$out" --resume "${TRAIN_EXTRA[@]}" --epochs "$EPOCHS" --batch_size "$BATCH" --grad_accum "$GRAD_ACCUM" "${DATA_ARGS[@]}"
 fi
 
 # ------------- 4) evaluación final del mejor adaptador (todos los trackers) -------------

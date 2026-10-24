@@ -60,6 +60,10 @@ def main():
     ap.add_argument("--val_limit", type=int, default=None, help="máx. pares de validación por evaluación")
     ap.add_argument("--evals_per_epoch", type=int, default=2)
     ap.add_argument("--skip_frozen_eval", action="store_true")
+    ap.add_argument("--save_all", action="store_true",
+                    help="guarda el adaptador en CADA evaluación (out/ckpt_ep<E>_it<I>/), además de best/ y last/")
+    ap.add_argument("--patience", type=int, default=0,
+                    help="parada temprana: evaluaciones seguidas sin mejorar el neto (0 = desactivada)")
     ap.add_argument("--resume", action="store_true",
                     help="continúa desde out/last si existe (se guarda en cada evaluación)")
     ap.add_argument("--seed", type=int, default=0)
@@ -95,12 +99,12 @@ def main():
         rows = gather_rows(score_dataset(v, va, coll, args.batch_size * 2, limit=args.val_limit,
                                          rank=rank, world=world), world)
         if not main_proc:
-            return None
+            return None, None
         res = report(va.events, rows, out, tag=tag, pos_weight=pos_weight)
         pm = json.loads((out / f"metrics{tag}.json").read_text())["pair"]
         print(f"VAL{tag}: loss={pm['bce']:.4f} loss_ponderada={pm.get('bce_weighted', float('nan')):.4f} "
               f"auc={pm['auc']:.3f} neto={res['net']}")
-        return res
+        return res, pm
 
     # ---------------- prueba congelada (época 0) ----------------
     best_net = -math.inf
@@ -110,7 +114,7 @@ def main():
         raise SystemExit("--resume no está soportado con --full_llm")
     if not args.skip_frozen_eval and not resuming:
         log("== Evaluación congelada (zero-shot) ==")
-        res = evaluate_val("_frozen")
+        res, _ = evaluate_val("_frozen")
         if main_proc:
             best_net = res["net"]
             print(f"neto congelado = {best_net}  (el fine-tuning debe superarlo para guardarse)")
@@ -135,14 +139,22 @@ def main():
     sched = get_cosine_schedule_with_warmup(opt, int(args.warmup * total), total)
     eval_every = max(1, n_batches // args.evals_per_epoch)
 
+    cfg = {**{k: getattr(args, k) for k in ("model", "epochs", "lr", "batch_size", "grad_accum", "lora_r",
+                                            "lora_alpha", "seed", "view_mode", "n_mem")}, "world": world}
     step, start_ep, start_it = 0, 0, 0
+    no_improve, last_ml, stop = 0, float("nan"), False
     if resuming:
         from peft import set_peft_model_state_dict
         from safetensors.torch import load_file
         set_peft_model_state_dict(v.model, load_file(str(last_dir / "adapter_model.safetensors")))
         st = torch.load(last_dir / "state.pt", map_location="cpu", weights_only=False)
         opt.load_state_dict(st["opt"]); sched.load_state_dict(st["sched"])
+        diff = {k: (st["cfg"][k], cfg[k]) for k in cfg if k in st.get("cfg", {}) and st["cfg"][k] != cfg[k]}
+        if diff:  # el scheduler/orden de lotes del estado guardado no valdrían
+            raise SystemExit(f"--resume con una configuración distinta a la guardada en {last_dir} "
+                             f"(guardado, actual): {diff}. Usa otro --out o borra {last_dir}.")
         step, start_ep, start_it, best_net = st["step"], st["ep"], st["it"], st["best_net"]
+        no_improve = st.get("no_improve", 0)
         log(f"== Reanudando: ep {start_ep}, lote {start_it}, step {step}, mejor neto {best_net}")
 
     # DDP envuelve el modelo (PEFT) para el paso de entrenamiento; la evaluación usa el modelo sin
@@ -161,7 +173,8 @@ def main():
             ep, it_done = ep + 1, 0
         v.model.save_pretrained(last_dir)
         torch.save({"opt": opt.state_dict(), "sched": sched.state_dict(), "step": step,
-                    "ep": ep, "it": it_done, "best_net": best_net}, last_dir / "state.pt")
+                    "ep": ep, "it": it_done, "best_net": best_net, "cfg": cfg,
+                    "no_improve": no_improve}, last_dir / "state.pt")
 
     for ep in range(start_ep, args.epochs):
         v.model.train()
@@ -187,18 +200,41 @@ def main():
                     ml = torch.tensor(float(np.mean(run[-50:])), device=v.device)
                     if world > 1:  # media entre GPUs (todas llegan al mismo step)
                         torch.distributed.all_reduce(ml); ml /= world
-                    log(f"ep {ep} step {step}/{total} loss {ml.item():.4f}")
+                    last_ml = ml.item()
+                    log(f"ep {ep} step {step}/{total} loss {last_ml:.4f}")
             if (it + 1) % eval_every == 0 or it + 1 == n_batches:
-                res = evaluate_val(f"_ep{ep}_it{it+1}")
+                res, pm = evaluate_val(f"_ep{ep}_it{it+1}")
+                flag = torch.zeros(1, device=v.device)
                 if main_proc:
                     if res["net"] > best_net:
-                        best_net = res["net"]
+                        best_net, no_improve = res["net"], 0
                         v.model.save_pretrained(out / "best")
                         (out / "best" / "selection.json").write_text(json.dumps(res, indent=1))
                         print(f"** guardado: neto={best_net} (beta={res['beta']}, tau={res['tau']})")
+                    else:
+                        no_improve += 1
+                    if args.save_all:
+                        v.model.save_pretrained(out / f"ckpt_ep{ep}_it{it+1}")
+                    with open(out / "history.jsonl", "a") as fh:  # curvas: ver plot_history.py
+                        fh.write(json.dumps({"ep": ep, "it": it + 1, "step": step, "train_loss": last_ml,
+                                             "val_bce": pm["bce"], "val_bce_weighted": pm.get("bce_weighted"),
+                                             "val_auc": pm["auc"], "val_auc_trk_err": pm["auc_tracker_error_events"],
+                                             "net": res["net"], "beta": res["beta"], "tau": res["tau"],
+                                             "fixed": res["fixed"], "broken": res["broken"],
+                                             "best_net": best_net}) + "\n")
                     save_last(ep, it + 1)
+                    if args.patience and no_improve >= args.patience:
+                        print(f"== Parada temprana: {no_improve} evaluaciones sin mejorar el neto (mejor {best_net})")
+                        flag += 1
+                if world > 1:
+                    torch.distributed.broadcast(flag, 0)
                 barrier(world)
                 v.model.train()
+                if flag.item():
+                    stop = True
+                    break
+        if stop:
+            break
     log(f"mejor neto en validación: {best_net}")
     barrier(world)
     cleanup(world)

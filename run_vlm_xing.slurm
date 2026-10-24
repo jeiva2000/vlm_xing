@@ -40,7 +40,7 @@ EXTRA_DATA_ARGS="${EXTRA_DATA_ARGS:-}"            # p.ej. "--add_traj_text"
 EPOCHS="${EPOCHS:-2}"
 BATCH="${BATCH:-2}"
 GRAD_ACCUM="${GRAD_ACCUM:-}"                     # POR GPU; vacío = auto (lote efectivo 16 repartido entre las GPUs)
-STAGES="${STAGES:-mine zeroshot train eval trackeval viz}"
+STAGES="${STAGES:-mine zeroshot train eval calibrate trackeval viz}"
 
 TORCH_SPEC="torch==2.7.1 torchvision==0.22.1"     # última serie con wheels cu118
 TORCH_INDEX="https://download.pytorch.org/whl/cu118"
@@ -179,6 +179,28 @@ if has_stage eval; then
   fi
 fi
 
+# ---- calibrar: puntúa el adaptador en val.sel, elige beta/tau ahí (rejilla ampliada) y recalcula informes ----
+# Escribe runs/sel_<tag>/selection.json; trackeval y viz lo usan si existe (si no, best/selection.json).
+SELJ="$WORK_DIR/runs/sel_$RUN_TAG/selection.json"
+if has_stage calibrate; then
+  best="$WORK_DIR/runs/lora_$RUN_TAG/best"
+  if [[ -d "$best" ]]; then
+    sel_out="$WORK_DIR/runs/sel_$RUN_TAG"
+    reuse=(); [[ -s "$sel_out/scores.jsonl" ]] && reuse=(--reuse_scores)
+    log "Calibración en val.sel -> $sel_out"
+    "${LAUNCH[@]}" evaluate.py --model "$MODEL" --dtype "$DTYPE" --adapter "$best" \
+      --events "$EV/val/events_$VAL_TRACKER.sel.jsonl" --out "$sel_out" "${DATA_ARGS[@]}" "${reuse[@]}"
+    python select_beta.py --events "$EV/val/events_$VAL_TRACKER.sel.jsonl" --scores "$sel_out/scores.jsonl" --out "$SELJ"
+    for t in $TRACKERS; do   # informes de test con la rejilla ampliada (solo recalcula métricas)
+      fin="$WORK_DIR/runs/final_${RUN_TAG}_$t"
+      [[ -s "$fin/scores.jsonl" ]] && python evaluate.py --events "$EV/val/events_$t.test.jsonl" --out "$fin" \
+        --reuse_scores "${DATA_ARGS[@]}" > "$fin/report_extended_grid.txt"
+    done
+  else
+    log "No hay adaptador guardado: se omite la calibración"
+  fi
+fi
+
 # --------- 5) TrackEval: tracker solo vs tracker + VLM (HOTA, IDF1, IDSW...) ----------
 # El VLM se aplica como post-proceso sobre los IDs del tracker (apply_vlm.py), con el beta/tau
 # elegidos en val.sel; se evalúan las secuencias de val.test. Si faltan las trayectorias crudas
@@ -204,7 +226,7 @@ if has_stage trackeval; then
       fi
       log "TrackEval ($t)"
       python apply_vlm.py --events "$evf" --scores "$fin/scores.jsonl" --tracks_dir "$trk" \
-        --selection "$best/selection.json" --out_dir "$te/vlm"
+        --selection "$([[ -s "$SELJ" ]] && echo "$SELJ" || echo "$best/selection.json")" --out_dir "$te/vlm"
       python eval_tracks.py --gt_root "$DT_ROOT/val" --events "$evf" \
         --variant "$t=$trk" --variant "$t+vlm=$te/vlm" --out "$te"
     done
@@ -223,7 +245,7 @@ if has_stage viz; then
       [[ -s "$fin/scores.jsonl" ]] || { log "Casos ($t): faltan scores, se omite"; continue; }
       log "Imágenes de casos ($t)"
       python visualize_cases.py --events "$EV/val/events_$t.test.jsonl" --scores "$fin/scores.jsonl" \
-        --selection "$best/selection.json" --out "$WORK_DIR/runs/cases_$RUN_TAG/$t" \
+        --selection "$([[ -s "$SELJ" ]] && echo "$SELJ" || echo "$best/selection.json")" --out "$WORK_DIR/runs/cases_$RUN_TAG/$t" \
         --max_per_cat "${MAX_CASES:-12}" --n_mem "$N_MEM"
     done
   else

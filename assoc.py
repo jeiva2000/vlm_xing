@@ -97,5 +97,5 @@ def pair_metrics(rows: list[dict], pos_weight: float | None = None) -> dict:
     return out
 
 
-def sweep(events, rows, betas=(0, 1, 2, 4, 8, 1e3), taus=(-2.0, 0.0, 2.0), min_purity=0.0):
+def sweep(events, rows, betas=(0, 1, 2, 4, 8, 12, 16, 24, 32, 64, 1e3), taus=(-2.0, 0.0, 2.0), min_purity=0.0):
     return [event_metrics(events, rows, b, t, min_purity) for b in betas for t in taus]

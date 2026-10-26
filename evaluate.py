@@ -98,9 +98,7 @@ def main():
     print(f"eventos={len(ds.events)} pares={len(ds)}")
     sp = out / "scores.jsonl"
     if args.reuse_scores and sp.exists():
-        if not main_proc:
-            return
-        rows = read_jsonl(sp)
+        rows = read_jsonl(sp) if main_proc else []  # todos los procesos llegan al barrier final
     else:
         from verifier import VLMVerifier
         v = VLMVerifier(args.model, args.dtype, load_4bit=args.load_4bit, attn_impl=args.attn_impl,

@@ -229,11 +229,11 @@ if has_stage trackeval; then
       if [[ ! -d "$trk" ]]; then
         trk="$WORK_DIR/tracks_raw/val/tracks_$t"
         if [[ ! -d "$trk" ]]; then
-          log "Regenerando trayectorias crudas de $t (solo secuencias de val.test)"
-          SEQS="$(python -c "from common import read_jsonl; print(*sorted({e['seq'] for e in read_jsonl('$evf')}))")"
-          # shellcheck disable=SC2086
+          # TODAS las secuencias de val y en el mismo orden que el minado: algunos trackers (ByteTrack)
+          # usan un contador de IDs global, y solo así se reproducen los IDs de los eventos.
+          log "Regenerando trayectorias crudas de $t (todas las secuencias de val)"
           python mine_events.py --data_root "$DT_ROOT/val" --det_dir "$DETS/val" --trackers "$t" \
-            --out_dir "$WORK_DIR/tracks_raw/val" --seqs $SEQS --fp16 $([[ "$REID" == 1 ]] && echo --reid)
+            --out_dir "$WORK_DIR/tracks_raw/val" --fp16 $([[ "$REID" == 1 ]] && echo --reid)
         fi
       fi
       log "TrackEval ($t)"

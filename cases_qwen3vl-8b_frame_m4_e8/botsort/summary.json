@@ -1,0 +1,9 @@
+{
+ "beta": 12,
+ "tau": 0.0,
+ "memorias": 1271,
+ "fixed": 33,
+ "broken": 13,
+ "correct": 1029,
+ "wrong": 196
+}

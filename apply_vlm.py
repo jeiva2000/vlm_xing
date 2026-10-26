@@ -111,6 +111,12 @@ def main():
     tot_ch = tot_cl = 0
     for seq in sorted({e["seq"] for e in events}):
         tracks = read_tracks(Path(args.tracks_dir) / f"{seq}.txt")
+        ids = {r[0] for rows_f in tracks.values() for r in rows_f}
+        ev_ids = {t["tid"] for _, e, _ in by_seq[seq] for t in e["memories"] + e["candidates"]}
+        if ev_ids and not ev_ids & ids:
+            raise SystemExit(f"{seq}: ningún ID de los eventos existe en {args.tracks_dir} (IDs desfasados: "
+                             f"eventos {min(ev_ids)}-{max(ev_ids)}, pistas {min(ids)}-{max(ids)}). "
+                             "Las pistas deben generarse con el mismo orden/conjunto de secuencias que el minado.")
         rows, ch, cl = remap_sequence(tracks, by_seq[seq])
         tot_ch += ch; tot_cl += cl
         with open(out / f"{seq}.txt", "w") as fh:

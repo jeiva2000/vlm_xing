@@ -137,7 +137,7 @@ def main():
     total = args.epochs * n_batches // args.grad_accum
     from transformers import get_cosine_schedule_with_warmup
     sched = get_cosine_schedule_with_warmup(opt, int(args.warmup * total), total)
-    eval_every = max(1, n_batches // args.evals_per_epoch)
+    eval_pts = {max(1, round(n_batches * k / args.evals_per_epoch)) for k in range(1, args.evals_per_epoch + 1)}
 
     cfg = {**{k: getattr(args, k) for k in ("model", "epochs", "lr", "batch_size", "grad_accum", "lora_r",
                                             "lora_alpha", "seed", "view_mode", "n_mem")}, "world": world}
@@ -202,7 +202,7 @@ def main():
                         torch.distributed.all_reduce(ml); ml /= world
                     last_ml = ml.item()
                     log(f"ep {ep} step {step}/{total} loss {last_ml:.4f}")
-            if (it + 1) % eval_every == 0 or it + 1 == n_batches:
+            if (it + 1) in eval_pts:  # puntos únicos; el último es siempre el final de la época
                 res, pm = evaluate_val(f"_ep{ep}_it{it+1}")
                 flag = torch.zeros(1, device=v.device)
                 if main_proc:

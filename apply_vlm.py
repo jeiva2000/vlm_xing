@@ -62,11 +62,12 @@ def remap_sequence(tracks: dict[int, list], evs: list[tuple[int, dict, list]]):
             changed += apply_event(evs[ptr][1], evs[ptr][2], remap, fresh)
             ptr += 1
         seen = set()
-        for tid, x1, y1, x2, y2 in tracks[f]:
+        # los tracks re-etiquetados explícitamente conservan su ID; el no asignado cede
+        for tid, x1, y1, x2, y2 in sorted(tracks[f], key=lambda r: r[0] not in remap):
             out = remap.get(tid, tid)
             if out in seen:
                 clashes += 1
-                out = next(fresh)
+                out = remap[tid] = next(fresh)  # ID nuevo ESTABLE (no uno por frame)
             seen.add(out)
             rows.append((f, out, x1, y1, x2, y2))
     return rows, changed, clashes

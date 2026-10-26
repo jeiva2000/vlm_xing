@@ -36,7 +36,8 @@ def make_ds(files, args, train: bool):
         files, view_mode=args.view_mode, n_mem=args.n_mem, mem_stride=args.mem_stride,
         max_side=args.max_side, crop_size=args.crop_size, add_traj_text=args.add_traj_text,
         min_purity=args.min_purity_train if train else 0.0,
-        drop_timeout=train, error_oversample=args.error_oversample if train else 1)
+        drop_timeout=train, error_oversample=args.error_oversample if train else 1,
+        hard_oversample=args.hard_oversample if train else 1, augment=bool(args.augment and train))
 
 
 def main():
@@ -56,6 +57,10 @@ def main():
     ap.add_argument("--min_purity_train", type=float, default=0.6,
                     help="descarta memorias muy contaminadas (etiqueta ambigua) SOLO en train")
     ap.add_argument("--error_oversample", type=int, default=1)
+    ap.add_argument("--hard_oversample", type=int, default=1,
+                    help="repite N veces los pares donde el tracker erró (candidato mal elegido y el correcto)")
+    ap.add_argument("--augment", action="store_true",
+                    help="aumentación en train: giro, brillo/contraste, contexto y separación de memoria")
     ap.add_argument("--pos_weight", type=float, default=None, help="None = automático neg/pos")
     ap.add_argument("--val_limit", type=int, default=None, help="máx. pares de validación por evaluación")
     ap.add_argument("--evals_per_epoch", type=int, default=2)
@@ -140,7 +145,8 @@ def main():
     eval_pts = {max(1, round(n_batches * k / args.evals_per_epoch)) for k in range(1, args.evals_per_epoch + 1)}
 
     cfg = {**{k: getattr(args, k) for k in ("model", "epochs", "lr", "batch_size", "grad_accum", "lora_r",
-                                            "lora_alpha", "seed", "view_mode", "n_mem")}, "world": world}
+                                            "lora_alpha", "seed", "view_mode", "n_mem",
+                                            "hard_oversample", "augment")}, "world": world}
     step, start_ep, start_it = 0, 0, 0
     no_improve, last_ml, stop = 0, float("nan"), False
     if resuming:

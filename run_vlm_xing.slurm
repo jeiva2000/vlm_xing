@@ -37,6 +37,14 @@ if [[ "$PROFILE" == wide ]]; then
   EPOCHS="${EPOCHS:-8}"; SAVE_ALL="${SAVE_ALL:-1}"; PATIENCE="${PATIENCE:-6}"; TAG_SUFFIX="${TAG_SUFFIX:-_e${EPOCHS}}"
 fi
 SAVE_ALL="${SAVE_ALL:-0}"; PATIENCE="${PATIENCE:-}"; TAG_SUFFIX="${TAG_SUFFIX:-}"; LR="${LR:-}"
+# Más datos / ejemplos difíciles (ver README "Más datos y ejemplos difíciles"). Cada opción añade su marca a la etiqueta del run.
+HARD_OVERSAMPLE="${HARD_OVERSAMPLE:-}"            # N>1: repite N veces los pares donde el tracker erró (negativo y positivo difíciles)
+AUGMENT="${AUGMENT:-0}"                           # 1 = aumentación en train (giro, brillo/contraste, contexto, separación temporal)
+MINE_VARIANTS="${MINE_VARIANTS:-}"                # variantes de minado de train, separadas por "+": ms03+ms005+ti01
+MINE_VARIANTS="${MINE_VARIANTS//+/ }"
+[[ -n "$HARD_OVERSAMPLE" ]] && TAG_SUFFIX+="_h${HARD_OVERSAMPLE}"
+[[ "$AUGMENT" == 1 ]] && TAG_SUFFIX+="_aug"
+[[ -n "$MINE_VARIANTS" ]] && TAG_SUFFIX+="_v$(wc -w <<<"$MINE_VARIANTS")"
 
 MODEL="${MODEL:-qwen3vl-8b}"
 TRACKERS="${TRACKERS:-bytetrack botsort ocsort}"
@@ -136,6 +144,26 @@ if has_stage mine; then
       log "Eventos de $split ya existen, se omite"
     fi
   done
+  # Variantes de minado SOLO de train (reusan las detecciones; solo cambia el tracking/los umbrales): más eventos
+  # y otros errores del tracker. Se guardan como events_<tracker>_<variante>.jsonl, que el glob de train recoge.
+  variant_args() {
+    case "$1" in
+      ms03)  echo "--min_score 0.3" ;;
+      ms005) echo "--min_score 0.05" ;;
+      ti01)  echo "--trig_iou 0.1 --sep_frames 2" ;;
+      *) log "Variante de minado desconocida: $1 (usa ms03, ms005, ti01)"; return 1 ;;
+    esac
+  }
+  for var in $MINE_VARIANTS; do
+    vargs="$(variant_args "$var")" || continue
+    for t in $TRACKERS; do
+      [[ -s "$EV/train/events_${t}_${var}.jsonl" ]] && continue
+      log "Minando variante $var ($t)"
+      # shellcheck disable=SC2086
+      python mine_events.py --data_root "$DT_ROOT/train" --det_dir "$DETS/train" --trackers "$t" \
+        --out_dir "$EV/train" --suffix "_$var" $vargs --fp16 $([[ "$REID" == 1 ]] && echo --reid)
+    done
+  done
   # val se parte POR SECUENCIA: "sel" para elegir checkpoint/beta, "test" para reportar.
   # Si se reporta sobre lo mismo que se usó para seleccionar, el resultado sale optimista.
   python - <<EOF
@@ -171,6 +199,8 @@ if has_stage train; then
   [[ "$SAVE_ALL" == 1 ]] && TRAIN_EXTRA+=(--save_all)
   [[ -n "$PATIENCE" ]] && TRAIN_EXTRA+=(--patience "$PATIENCE")
   [[ -n "$LR" ]] && TRAIN_EXTRA+=(--lr "$LR")
+  [[ -n "$HARD_OVERSAMPLE" ]] && TRAIN_EXTRA+=(--hard_oversample "$HARD_OVERSAMPLE")
+  [[ "$AUGMENT" == 1 ]] && TRAIN_EXTRA+=(--augment)
   log "LoRA -> $out"
   "${LAUNCH[@]}" train_lora.py --model "$MODEL" --dtype "$DTYPE" \
     --train_events "$EV"/train/events_*.jsonl --val_events "$EV/val/events_$VAL_TRACKER.sel.jsonl" \

@@ -110,3 +110,23 @@ python visualize_matrix.py --events work/events/val/events_botsort.test.jsonl \
   --scores work/runs/final_<tag>_botsort/scores.jsonl --selection work/runs/sel_<tag>/selection.json \
   --out matrix_botsort --cats broken wrong           # --seq dancetrack0063 --event 120 para uno concreto
 ```
+
+## Más datos y ejemplos difíciles
+
+La pérdida de validación sube mientras la de train baja (sobreajuste), así que más épocas no ayudan: hace falta
+más diversidad. Tres opciones, combinables, y cada una añade su marca al nombre del run (`_h3`, `_aug`, `_v3`):
+
+- `HARD_OVERSAMPLE=3` repite 3 veces los pares clave de las memorias donde el tracker erró: el candidato que
+  eligió mal (negativo difícil) y el correcto (positivo difícil). Es más fino que `--error_oversample`, que repite eventos enteros.
+- `AUGMENT=1` aumentación solo en train: giro horizontal (el mismo en todas las vistas del par), brillo/contraste,
+  contexto del recorte y separación temporal de la memoria. Con `--add_traj_text` el giro se desactiva.
+- `MINE_VARIANTS="ms03+ms005+ti01"` vuelve a minar **solo train** con otros umbrales, reusando las detecciones de YOLOX
+  (solo cuesta el tracking): `ms03` y `ms005` cambian el umbral de detección (0.3 / 0.05) y `ti01` baja el umbral de
+  disparo (más eventos). Salen como `events_<tracker>_<variante>.jsonl` y entran solos en el entrenamiento.
+
+```bash
+DT_ROOT=... MODELS="qwen3vl-4b" EPOCHS=3 HARD_OVERSAMPLE=3 AUGMENT=1 MINE_VARIANTS="ms03+ms005" bash launch_wide.sh
+```
+
+Límite: las variantes siguen saliendo de las mismas 40 secuencias de DanceTrack; añaden otros errores del tracker,
+no identidades nuevas. Para eso haría falta otro dataset. val.sel/val.test no se tocan, así que los resultados siguen siendo comparables.

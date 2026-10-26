@@ -236,6 +236,7 @@ def main():
     ap.add_argument("--reid_weights", default="models/osnet_x0_25_msmt17.pt")
     ap.add_argument("--tracker_kwargs", default="{}", help="JSON con overrides para make_tracker")
     ap.add_argument("--out_dir", required=True)
+    ap.add_argument("--suffix", default="", help="sufijo de salida (events_<tracker><sufijo>.jsonl) para variantes")
     ap.add_argument("--seqs", nargs="*", help="subconjunto de secuencias")
     ap.add_argument("--min_score", type=float, default=0.1)
     ap.add_argument("--gt_iou", type=float, default=0.5)
@@ -268,12 +269,12 @@ def main():
             recs, st = run_sequence(s, tname, args, dict(tk))
             for r in recs:
                 r["seq_dir"] = str(s)
-            write_tracks(Path(args.out_dir) / f"tracks_{tname}" / f"{s.name}.txt", st["tracks"])
+            write_tracks(Path(args.out_dir) / f"tracks_{tname}{args.suffix}" / f"{s.name}.txt", st["tracks"])
             all_recs += recs
             n_sw += st["switches"]
             n_cov += st["covered"]
             print(f"[{tname}] {s.name}: eventos={len(recs)} switches={st['switches']} cubiertos={st['covered']}")
-        out = Path(args.out_dir) / f"events_{tname}.jsonl"
+        out = Path(args.out_dir) / f"events_{tname}{args.suffix}.jsonl"
         write_jsonl(out, all_recs)
         n_err = sum(r["tracker_error"] for r in all_recs)
         print(f"[{tname}] TOTAL eventos={len(all_recs)} con_error={n_err} "

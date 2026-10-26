@@ -10,6 +10,8 @@
 #   EPOCHS   épocas por modelo               (def. 8)
 #   PATIENCE evaluaciones sin mejorar el neto antes de parar (def. 6 = 3 épocas con 2 evals/época; 0 = nunca)
 #   LR, BATCH, VIEW_MODE, N_MEM, REID        se pasan tal cual al .slurm
+#   HARD_OVERSAMPLE=3  repite los pares donde el tracker erró;  AUGMENT=1  aumentación de imagen en train
+#   MINE_VARIANTS="ms03+ms005+ti01"  minado extra de train con otros umbrales (separadas por "+")
 #   CHAIN    1 = un job tras otro (afterany; cada uno usa todas las GPUs); 0 = todos a la vez (def. 1)
 # Resultados: work/runs/lora_<modelo>_<vista>_m<N>_e<EPOCHS>/{best,last,ckpt_ep*_it*,history.jsonl}
 # Si un job se corta (límite de tiempo), vuelve a lanzar el mismo comando: --resume continúa desde last/.
@@ -22,7 +24,7 @@ cd "$(dirname "$0")"
 mkdir -p logs
 
 passthru="PROFILE=wide,DT_ROOT=$DT_ROOT,EPOCHS=$EPOCHS"
-for v in PATIENCE LR BATCH VIEW_MODE N_MEM REID; do
+for v in PATIENCE LR BATCH VIEW_MODE N_MEM REID HARD_OVERSAMPLE AUGMENT MINE_VARIANTS; do
   [[ -n "${!v:-}" ]] && passthru+=",$v=${!v}"
 done
 

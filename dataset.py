@@ -9,6 +9,7 @@ import random
 from pathlib import Path
 
 import numpy as np
+from PIL import Image, ImageEnhance, ImageOps
 from torch.utils.data import Dataset
 
 from common import FrameCache, frame_path, read_jsonl, read_seqinfo, render_view
@@ -25,11 +26,13 @@ def load_events(paths: list[str | Path]) -> list[dict]:
 
 
 def expand_pairs(events: list[dict], min_purity: float = 0.0, drop_timeout: bool = False,
-                 error_oversample: int = 1) -> list[tuple[int, int, int]]:
+                 error_oversample: int = 1, hard_oversample: int = 1) -> list[tuple[int, int, int]]:
     """Lista de (idx_evento, idx_memoria, idx_candidato).
 
     error_oversample > 1 repite los eventos donde el tracker falló. Úsalo con cuidado:
     la distribución natural (mayoría de cruces bien resueltos) es la que enseña a NO romper.
+    hard_oversample > 1 repite, solo cuando el tracker se equivocó en esa memoria, los dos pares clave: el
+    candidato que el tracker eligió mal (negativo difícil) y el que era correcto (positivo difícil).
     """
     pairs = []
     for ei, ev in enumerate(events):
@@ -39,8 +42,11 @@ def expand_pairs(events: list[dict], min_purity: float = 0.0, drop_timeout: bool
         for mi, m in enumerate(ev["memories"]):
             if m["purity"] < min_purity:
                 continue
-            for ci in range(len(ev["candidates"])):
-                pairs.extend([(ei, mi, ci)] * rep)
+            hard = set()
+            if hard_oversample > 1 and m["truth_choice"] is not None and m["tracker_choice"] != m["truth_choice"]:
+                hard = {m["tracker_choice"], m["truth_choice"]}
+            for ci, c in enumerate(ev["candidates"]):
+                pairs.extend([(ei, mi, ci)] * (rep * (hard_oversample if c["tid"] in hard else 1)))
     return pairs
 
 
@@ -52,9 +58,11 @@ def pair_label(ev: dict, mi: int, ci: int) -> int:
 class CrossingPairDataset(Dataset):
     def __init__(self, event_files, view_mode="frame", n_mem=4, mem_stride=3, max_side=640,
                  crop_size=336, ctx=2.5, add_traj_text=False, min_purity=0.0, drop_timeout=False,
-                 error_oversample=1):
+                 error_oversample=1, hard_oversample=1, augment=False):
         self.events = load_events(event_files)
-        self.pairs = expand_pairs(self.events, min_purity, drop_timeout, error_oversample)
+        self.pairs = expand_pairs(self.events, min_purity, drop_timeout, error_oversample, hard_oversample)
+        self.augment = augment
+        self._rng = random.Random()
         self.view_mode, self.n_mem, self.mem_stride = view_mode, n_mem, mem_stride
         self.max_side, self.crop_size, self.ctx = max_side, crop_size, ctx
         self.add_traj_text = add_traj_text
@@ -69,12 +77,22 @@ class CrossingPairDataset(Dataset):
             self._infos[seq_dir] = read_seqinfo(Path(seq_dir))
         return self._infos[seq_dir]
 
-    def _views(self, seq_dir: str, f: int, box) -> list:
+    def _views(self, seq_dir: str, f: int, box, ctx=None, aug=None) -> list:
         img = self._cache.get(frame_path(Path(seq_dir), self._info(seq_dir), f))
-        return render_view(img, box, self.view_mode, self.max_side, self.ctx, self.crop_size)
+        views = render_view(img, box, self.view_mode, self.max_side, ctx or self.ctx, self.crop_size)
+        if aug:  # mismos parámetros en todas las vistas del par, para que sigan siendo comparables
+            flip, bri, con = aug
+            views = [self._augment(v, flip, bri, con) for v in views]
+        return views
 
-    def _mem_indices(self, n: int) -> list[int]:
-        idx = list(range(n - 1, -1, -self.mem_stride))[: self.n_mem]
+    @staticmethod
+    def _augment(v: Image.Image, flip: bool, bri: float, con: float) -> Image.Image:
+        if flip:
+            v = ImageOps.mirror(v)
+        return ImageEnhance.Contrast(ImageEnhance.Brightness(v).enhance(bri)).enhance(con)
+
+    def _mem_indices(self, n: int, stride=None) -> list[int]:
+        idx = list(range(n - 1, -1, -(stride or self.mem_stride)))[: self.n_mem]
         return idx[::-1]
 
     def __getitem__(self, i):
@@ -84,13 +102,19 @@ class CrossingPairDataset(Dataset):
         info = self._info(ev["seq_dir"])
         W, H = info["width"], info["height"]
 
+        ctx = stride = aug = None
+        if self.augment:  # solo entrenamiento: contexto, separación temporal, brillo/contraste y giro
+            r = self._rng
+            ctx = self.ctx * r.uniform(0.85, 1.2)
+            stride = r.choice([max(1, self.mem_stride - 1), self.mem_stride, self.mem_stride + 1])
+            aug = (r.random() < 0.5 and not self.add_traj_text, r.uniform(0.8, 1.2), r.uniform(0.8, 1.2))
         content, images = [{"type": "text", "text": "REFERENCE frames (oldest to newest):"}], []
-        for k in self._mem_indices(len(m["frames"])):
-            for v in self._views(ev["seq_dir"], m["frames"][k], m["boxes"][k]):
+        for k in self._mem_indices(len(m["frames"]), stride):
+            for v in self._views(ev["seq_dir"], m["frames"][k], m["boxes"][k], ctx, aug):
                 content.append({"type": "image"})
                 images.append(v)
         content.append({"type": "text", "text": "NEW frame:"})
-        for v in self._views(ev["seq_dir"], ev["query_frame"], c["box"]):
+        for v in self._views(ev["seq_dir"], ev["query_frame"], c["box"], ctx, aug):
             content.append({"type": "image"})
             images.append(v)
 

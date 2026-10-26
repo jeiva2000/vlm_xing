@@ -9,3 +9,4 @@ __pycache__/
 .DS_Store
 third_party/
 vlm_xing_*.out
+cases_*/

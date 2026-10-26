@@ -96,3 +96,17 @@ nombre del run para no mezclarse con los cortos). Cada run en `work/runs/lora_<m
 Un checkpoint concreto se evalúa con `evaluate.py --adapter .../ckpt_ep3_it500 ...`. `--resume` se niega a continuar si la
 configuración (épocas, lr, lote, nº de GPUs...) cambió respecto a `last/`: usa otro `--out`. Tras un corte por tiempo,
 relanza el mismo comando y continúa. Con el modelo entero por GPU (DDP) caben 2B/4B/8B; 32B no.
+
+## Matriz consulta vs banco
+
+`visualize_matrix.py` dibuja una imagen por **evento** con la matriz completa de asociaciones: filas = banco
+(memorias, con sus frames de referencia), columnas = consulta (candidatos del frame de la consulta), celdas =
+score del VLM (rojo → verde). Borde verde = verdad, `T` = elección del tracker, `V` = elección del VLM.
+Se agrupan por su peor caso (`broken > wrong > fixed > correct`). La etapa `viz` la genera en
+`work/runs/matrix_<tag>/<tracker>/index.html`. A mano:
+
+```bash
+python visualize_matrix.py --events work/events/val/events_botsort.test.jsonl \
+  --scores work/runs/final_<tag>_botsort/scores.jsonl --selection work/runs/sel_<tag>/selection.json \
+  --out matrix_botsort --cats broken wrong           # --seq dancetrack0063 --event 120 para uno concreto
+```

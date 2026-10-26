@@ -259,6 +259,9 @@ if has_stage viz; then
       python visualize_cases.py --events "$EV/val/events_$t.test.jsonl" --scores "$fin/scores.jsonl" \
         --selection "$([[ -s "$SELJ" ]] && echo "$SELJ" || echo "$best/selection.json")" --out "$WORK_DIR/runs/cases_$RUN_TAG/$t" \
         --max_per_cat "${MAX_CASES:-12}" --n_mem "$N_MEM"
+      python visualize_matrix.py --events "$EV/val/events_$t.test.jsonl" --scores "$fin/scores.jsonl" \
+        --selection "$([[ -s "$SELJ" ]] && echo "$SELJ" || echo "$best/selection.json")" --out "$WORK_DIR/runs/matrix_$RUN_TAG/$t" \
+        --max_per_cat "${MAX_CASES:-12}" --n_refs 2 || log "AVISO: falló la matriz consulta-banco ($t)"
     done
   else
     log "No hay adaptador guardado: se omiten las imágenes de casos"

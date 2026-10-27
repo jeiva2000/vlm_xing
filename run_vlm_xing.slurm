@@ -196,6 +196,14 @@ fi
 # ----------------------------- 3) fine-tuning -------------------------------
 if has_stage train; then
   out="$WORK_DIR/runs/lora_$RUN_TAG"
+  # Lista explícita: eventos base + SOLO las variantes pedidas en MINE_VARIANTS (un glob recogería también
+  # variantes minadas en lanzamientos anteriores y multiplicaría los datos sin avisar).
+  TRAIN_EVENTS=()
+  for t in $TRACKERS; do
+    TRAIN_EVENTS+=("$EV/train/events_$t.jsonl")
+    for var in $MINE_VARIANTS; do TRAIN_EVENTS+=("$EV/train/events_${t}_${var}.jsonl"); done
+  done
+  log "Eventos de train: ${#TRAIN_EVENTS[@]} ficheros (${TRAIN_EVENTS[*]##*/})"
   TRAIN_EXTRA=()
   [[ "$SAVE_ALL" == 1 ]] && TRAIN_EXTRA+=(--save_all)
   [[ -n "$PATIENCE" ]] && TRAIN_EXTRA+=(--patience "$PATIENCE")
@@ -204,7 +212,7 @@ if has_stage train; then
   [[ "$AUGMENT" == 1 ]] && TRAIN_EXTRA+=(--augment)
   log "LoRA -> $out"
   "${LAUNCH[@]}" train_lora.py --model "$MODEL" --dtype "$DTYPE" \
-    --train_events "$EV"/train/events_*.jsonl --val_events "$EV/val/events_$VAL_TRACKER.sel.jsonl" \
+    --train_events "${TRAIN_EVENTS[@]}" --val_events "$EV/val/events_$VAL_TRACKER.sel.jsonl" \
     --out "$out" --resume "${TRAIN_EXTRA[@]}" --epochs "$EPOCHS" --batch_size "$BATCH" --grad_accum "$GRAD_ACCUM" "${DATA_ARGS[@]}"
 fi
 

@@ -103,8 +103,11 @@ def render_event(ei, ev, sc, final, cats, cache, n_refs, stride, max_rows, max_c
     d.rectangle([0, 0, W, BANNER - 8], fill=CAT_COLOR[worst])
     d.text((10, 6), f"[{worst.upper()}] {ev['seq']}  evento {ei}  consulta f={ev['query_frame']}  "
                     f"tracker={ev['tracker']}", font=f1, fill="white")
-    d.text((10, 36), f"beta={beta:g} tau={tau:g} | filas = BANCO (memorias)  columnas = CONSULTA (candidatos)  "
-                     f"T=tracker V=VLM  borde verde=verdad", font=f3, fill="white")
+    last = [m["frames"][-1] for m in ev["memories"]]
+    d.text((10, 36), f"beta={beta:g} tau={tau:g} | filas = BANCO (memoria congelada, azul = frames antes de la consulta)  "
+                     f"columnas = CONSULTA (f={ev['query_frame']}, {ev['query_frame'] - max(last)}-"
+                     f"{ev['query_frame'] - min(last)} fr tras la ultima ref)  T=tracker V=VLM  borde verde=verdad",
+           font=f3, fill="white")
 
     # esquina: frame de la consulta con las cajas numeradas
     frame = Image.fromarray(cache.get(frame_path(seq_dir, info, ev["query_frame"]))).convert("RGB")
@@ -124,7 +127,7 @@ def render_event(ei, ev, sc, final, cats, cache, n_refs, stride, max_rows, max_c
         x = GAP + corner_w + GAP + k * CW
         canvas.paste(_fit(crop(ev["query_frame"], c["box"]), CW, TH), (x, BANNER))
         d.text((x + 3, BANNER + 2), f"tid {c['tid']}", font=f2, fill=(255, 255, 255))
-        d.text((x + 3, BANNER + TH - 18), f"gt {c['gt_id']}", font=f3, fill=(255, 220, 90))
+        d.text((x + 3, BANNER + TH - 18), f"gt {c['gt_id']}  f={ev['query_frame']}", font=f3, fill=(255, 220, 90))
 
     # filas (memorias)
     y = BANNER + TH + GAP
@@ -133,9 +136,12 @@ def render_event(ei, ev, sc, final, cats, cache, n_refs, stride, max_rows, max_c
         idxs = list(range(len(m["frames"]) - 1, -1, -stride))[:n_refs][::-1]
         for q, k in enumerate(idxs):
             canvas.paste(_fit(crop(m["frames"][k], m["boxes"][k]), TW, rh), (GAP + q * TW, y))
-            d.text((GAP + q * TW + 3, y + 2), f"f={m['frames'][k]}", font=f3, fill=(255, 255, 255))
+            fr = m["frames"][k]
+            d.text((GAP + q * TW + 3, y + 2), f"f={fr}", font=f3, fill=(255, 255, 255))
+            d.text((GAP + q * TW + 3, y + 16), f"-{ev['query_frame'] - fr} fr", font=f3, fill=(150, 200, 255))
         d.text((GAP + 3, y + rh - 36), f"mem tid {m['tid']}", font=f2, fill=(255, 255, 255))
-        d.text((GAP + 3, y + rh - 18), f"gt {m['gt_major']}  pureza {m['purity']:.2f}", font=f3, fill=(255, 220, 90))
+        d.text((GAP + 3, y + rh - 18), f"gt {m['gt_major']}  pureza {m['purity']:.2f}  hist {len(m['frames'])} fr",
+               font=f3, fill=(255, 220, 90))
         cy = y + (rh - CH) // 2
         for k, j in enumerate(cols):
             c = cands[j]
@@ -177,7 +183,7 @@ def main():
     ap.add_argument("--max_per_cat", type=int, default=15)
     ap.add_argument("--max_rows", type=int, default=6)
     ap.add_argument("--max_cols", type=int, default=8)
-    ap.add_argument("--n_refs", type=int, default=2, help="frames de referencia por memoria")
+    ap.add_argument("--n_refs", type=int, default=4, help="frames de referencia por memoria (= n_mem del modelo)")
     ap.add_argument("--mem_stride", type=int, default=3)
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()

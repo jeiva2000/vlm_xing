@@ -24,7 +24,7 @@ cd "$(dirname "$0")"
 mkdir -p logs
 
 passthru="PROFILE=wide,DT_ROOT=$DT_ROOT,EPOCHS=$EPOCHS"
-for v in PATIENCE LR BATCH VIEW_MODE N_MEM REID HARD_OVERSAMPLE AUGMENT MINE_VARIANTS; do
+for v in PATIENCE LR BATCH VIEW_MODE N_MEM MEM_STRIDE REID HARD_OVERSAMPLE AUGMENT MINE_VARIANTS; do
   [[ -n "${!v:-}" ]] && passthru+=",$v=${!v}"
 done
 

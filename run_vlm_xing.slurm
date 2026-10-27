@@ -51,6 +51,7 @@ TRACKERS="${TRACKERS:-bytetrack botsort ocsort}"
 VAL_TRACKER="${VAL_TRACKER:-bytetrack}"           # tracker cuyos eventos val.sel eligen el checkpoint
 VIEW_MODE="${VIEW_MODE:-frame}"
 N_MEM="${N_MEM:-4}"
+MEM_STRIDE="${MEM_STRIDE:-3}"                      # separación (en frames de la memoria) entre referencias
 REID="${REID:-0}"                                 # 1 = BoT-SORT con ReID (descarga osnet si falta)
 EXTRA_DATA_ARGS="${EXTRA_DATA_ARGS:-}"            # p.ej. "--add_traj_text"
 EPOCHS="${EPOCHS:-2}"
@@ -128,7 +129,7 @@ EV="$WORK_DIR/events"
 DETS="$WORK_DIR/dets/yolox_dancetrack"
 RUN_TAG="${MODEL}_${VIEW_MODE}_m${N_MEM}${TAG_SUFFIX}"
 # shellcheck disable=SC2206
-DATA_ARGS=(--view_mode "$VIEW_MODE" --n_mem "$N_MEM" $EXTRA_DATA_ARGS)
+DATA_ARGS=(--view_mode "$VIEW_MODE" --n_mem "$N_MEM" --mem_stride "$MEM_STRIDE" $EXTRA_DATA_ARGS)
 
 # ------------------ 1) detección YOLOX + trackers + eventos ------------------
 if has_stage mine; then
@@ -291,7 +292,7 @@ if has_stage viz; then
         --max_per_cat "${MAX_CASES:-12}" --n_mem "$N_MEM"
       python visualize_matrix.py --events "$EV/val/events_$t.test.jsonl" --scores "$fin/scores.jsonl" \
         --selection "$([[ -s "$SELJ" ]] && echo "$SELJ" || echo "$best/selection.json")" --out "$WORK_DIR/runs/matrix_$RUN_TAG/$t" \
-        --max_per_cat "${MAX_CASES:-12}" --n_refs 2 || log "AVISO: falló la matriz consulta-banco ($t)"
+        --max_per_cat "${MAX_CASES:-12}" --n_refs "$N_MEM" --mem_stride "$MEM_STRIDE" || log "AVISO: falló la matriz consulta-banco ($t)"
     done
   else
     log "No hay adaptador guardado: se omiten las imágenes de casos"
